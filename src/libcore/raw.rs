@@ -35,7 +35,7 @@ use mem;
 ///
 /// - Creating a slice from a data pointer and length can be done with
 ///   `std::slice::from_raw_parts` or `std::slice::from_raw_parts_mut`
-///   than with `std::mem::transmute`  on a value of type `Slice`.
+///   instead of `std::mem::transmute`ing a value of type `Slice`.
 /// - Extracting the data pointer and length from a slice can be
 ///   performed with the `as_ptr` (or `as_mut_ptr`) and `len`
 ///   methods.
@@ -104,7 +104,7 @@ pub struct Closure {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::mem;
 /// use std::raw;
 ///
