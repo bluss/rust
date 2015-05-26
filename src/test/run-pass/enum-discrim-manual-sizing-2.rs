@@ -11,7 +11,7 @@
 // Test that explicit discriminant sizing inhibits the non-nullable pointer
 // optimization in enum layout.
 
-use std::mem::size_of;
+use std::mem::{size_of, zeroed};
 
 #[repr(i8)]
 enum Ei8<T> {
@@ -103,4 +103,10 @@ pub fn main() {
     assert!(size_of::<Euint<&i32>>() > size_of::<usize>());
 
     assert!(size_of::<EC<&i32>>() > size_of::<EC<()>>());
+
+    let zero: &i32 = unsafe { zeroed() };
+    assert!(match Eu8::_Some(zero) {
+        Eu8::_Some(_) => true,
+        Eu8::_None => false,
+    });
 }
