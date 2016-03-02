@@ -49,7 +49,6 @@ use result::Result::{Ok, Err};
 use ptr;
 use mem;
 use marker::{Copy, Send, Sync, self};
-use raw::Repr;
 // Avoid conflicts with *both* the Slice trait (buggy) and the `slice::raw` module.
 use raw::Slice as RawSlice;
 
@@ -316,7 +315,12 @@ impl<T> SliceExt for [T] {
     }
 
     #[inline]
-    fn len(&self) -> usize { self.repr().len }
+    fn len(&self) -> usize {
+        // cast &&[T] to *const RawSlice<T>
+        unsafe {
+            (*(&self as *const _ as *const RawSlice<T>)).len
+        }
+    }
 
     #[inline]
     fn get_mut(&mut self, index: usize) -> Option<&mut T> {

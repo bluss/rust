@@ -29,7 +29,7 @@ use marker::Sized;
 use mem;
 use ops::{Fn, FnMut, FnOnce};
 use option::Option::{self, None, Some};
-use raw::{Repr, Slice};
+use raw::Slice;
 use result::Result::{self, Ok, Err};
 use slice::{self, SliceExt};
 
@@ -1898,7 +1898,12 @@ impl StrExt for str {
     }
 
     #[inline]
-    fn len(&self) -> usize { self.repr().len }
+    fn len(&self) -> usize {
+        // cast &&str to *const Slice<T>
+        unsafe {
+            (*(&self as *const _ as *const Slice<u8>)).len
+        }
+    }
 
     #[inline]
     fn is_empty(&self) -> bool { self.len() == 0 }
