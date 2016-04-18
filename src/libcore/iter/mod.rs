@@ -1087,6 +1087,15 @@ impl<I> DoubleEndedIterator for Enumerate<I> where
     }
 }
 
+#[doc(hidden)]
+unsafe impl<I> TrustedRandomAccess for Enumerate<I>
+    where I: TrustedRandomAccess
+{
+    unsafe fn get_unchecked(&mut self, i: usize) -> (usize, I::Item) {
+        (i, self.iter.get_unchecked(i))
+    }
+}
+
 /// An iterator with a `peek()` that returns an optional reference to the next
 /// element.
 ///
