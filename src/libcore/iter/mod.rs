@@ -881,6 +881,17 @@ impl<B, I: DoubleEndedIterator, F> DoubleEndedIterator for Map<I, F> where
     }
 }
 
+#[doc(hidden)]
+unsafe impl<B, I, F> TrustedRandomAccess for Map<I, F>
+    where I: TrustedRandomAccess,
+          F: FnMut(I::Item) -> B
+{
+    unsafe fn get_unchecked(&mut self, i: usize) -> B {
+        (self.f)(self.iter.get_unchecked(i))
+    }
+
+}
+
 /// An iterator that filters the elements of `iter` with `predicate`.
 ///
 /// This `struct` is created by the [`filter()`] method on [`Iterator`]. See its
