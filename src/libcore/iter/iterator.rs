@@ -13,6 +13,7 @@ use cmp::Ordering;
 use super::{Chain, Cycle, Cloned, Enumerate, Filter, FilterMap, FlatMap, Fuse};
 use super::{Inspect, Map, Peekable, Scan, Skip, SkipWhile, Take, TakeWhile, Rev};
 use super::{Zip, Sum, Product};
+use super::{FoldWhile};
 use super::{ChainState, FromIterator, ZipImpl};
 
 fn _assert_is_object_safe(_: &Iterator<Item=()>) {}
@@ -1303,15 +1304,73 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn fold<B, F>(self, init: B, mut f: F) -> B where
-        Self: Sized, F: FnMut(B, Self::Item) -> B,
+    fn fold<B, F>(mut self, init: B, mut f: F) -> B
+        where Self: Sized,
+              F: FnMut(B, Self::Item) -> B,
+    {
+        self.fold_while(init, move |acc, elt| FoldWhile::Continue(f(acc, elt))).into_inner()
+    }
+
+    /// An iterator adaptor that applies a function, producing a single, final value.
+    ///
+    /// `fold_while()` is basically equivalent to `fold()` but with additional support for
+    /// early exit via short-circuiting.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::iter::FoldWhile::{Continue, Done};
+    ///
+    /// let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    ///
+    /// let mut result = 0;
+    ///
+    /// // for loop:
+    /// for i in &numbers {
+    ///     if *i > 5 {
+    ///         break;
+    ///     }
+    ///     result = result + i;
+    /// }
+    ///
+    /// // fold:
+    /// let result2 = numbers.iter().fold(0, |acc, x| {
+    ///     if *x > 5 { acc } else { acc + x }
+    /// });
+    ///
+    /// // fold_while:
+    /// let result3 = numbers.iter().fold_while(0, |acc, x| {
+    ///     if *x > 5 { Done(acc) } else { Continue(acc + x) }
+    /// });
+    ///
+    /// // they're the same
+    /// assert_eq!(result, result2);
+    /// assert_eq!(result2, result3);
+    /// ```
+    ///
+    /// The big difference between the computations of `result2` and `result3` is that while
+    /// `fold()` called the provided closure for every item of the callee iterator,
+    /// `fold_while()` actually stopped iterating as soon as it encountered `FoldWhile::Done(_)`.
+    #[unstable(feature = "iterator_fold_while", issue = "0")]
+    fn fold_while<Acc, G>(&mut self, init: Acc, mut g: G) -> FoldWhile<Acc>
+        where Self: Sized,
+              G: FnMut(Acc, Self::Item) -> FoldWhile<Acc>
     {
         let mut accum = init;
-        for x in self {
-            accum = f(accum, x);
+        for item in self {
+            match g(accum, item) {
+                FoldWhile::Continue(res) => {
+                    accum = res;
+                }
+                done @ FoldWhile::Done(_) => {
+                    return done;
+                }
+            }
         }
-        accum
+        FoldWhile::Continue(accum)
     }
+
+
 
     /// Tests if every element of the iterator matches a predicate.
     ///
@@ -1355,12 +1414,13 @@ pub trait Iterator {
     fn all<F>(&mut self, mut f: F) -> bool where
         Self: Sized, F: FnMut(Self::Item) -> bool
     {
-        for x in self {
-            if !f(x) {
-                return false;
+        self.fold_while(true, move |_, elt| {
+            if !f(elt) {
+                FoldWhile::Done(false)
+            } else {
+                FoldWhile::Continue(true)
             }
-        }
-        true
+        }).into_inner()
     }
 
     /// Tests if any element of the iterator matches a predicate.
@@ -1406,12 +1466,7 @@ pub trait Iterator {
         Self: Sized,
         F: FnMut(Self::Item) -> bool
     {
-        for x in self {
-            if f(x) {
-                return true;
-            }
-        }
-        false
+        !self.all(move |elt| !f(elt))
     }
 
     /// Searches for an element of an iterator that satisfies a predicate.
@@ -1455,14 +1510,17 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn find<P>(&mut self, mut predicate: P) -> Option<Self::Item> where
-        Self: Sized,
-        P: FnMut(&Self::Item) -> bool,
+    fn find<P>(&mut self, mut predicate: P) -> Option<Self::Item>
+        where Self: Sized,
+              P: FnMut(&Self::Item) -> bool,
     {
-        for x in self {
-            if predicate(&x) { return Some(x) }
-        }
-        None
+        self.fold_while(None, move |_, elt| {
+            if predicate(&elt) {
+                FoldWhile::Done(Some(elt))
+            } else {
+                FoldWhile::Continue(None)
+            }
+        }).into_inner()
     }
 
     /// Searches for an element in an iterator, returning its index.
@@ -1517,13 +1575,16 @@ pub trait Iterator {
         Self: Sized,
         P: FnMut(Self::Item) -> bool,
     {
-        // `enumerate` might overflow.
-        for (i, x) in self.enumerate() {
-            if predicate(x) {
-                return Some(i);
+        // index might overflow.
+        let mut index = 0;
+        self.fold_while(None, move |_, elt| {
+            if predicate(elt) {
+                FoldWhile::Done(Some(index))
+            } else {
+                index += 1;
+                FoldWhile::Continue(None)
             }
-        }
-        None
+        }).into_inner()
     }
 
     /// Searches for an element in an iterator from the right, returning its
@@ -1567,17 +1628,17 @@ pub trait Iterator {
         P: FnMut(Self::Item) -> bool,
         Self: Sized + ExactSizeIterator + DoubleEndedIterator
     {
-        let mut i = self.len();
-
-        while let Some(v) = self.next_back() {
-            if predicate(v) {
-                return Some(i - 1);
+        let mut index = self.len();
+        // No need for an overflow check here, because `ExactSizeIterator`
+        // implies that the number of elements fits into a `usize`.
+        self.rev().fold_while(None, move |_, elt| {
+            index -= 1;
+            if predicate(elt) {
+                FoldWhile::Done(Some(index))
+            } else {
+                FoldWhile::Continue(None)
             }
-            // No need for an overflow check here, because `ExactSizeIterator`
-            // implies that the number of elements fits into a `usize`.
-            i -= 1;
-        }
-        None
+        }).into_inner()
     }
 
     /// Returns the maximum element of an iterator.

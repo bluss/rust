@@ -336,6 +336,15 @@ mod range;
 mod sources;
 mod traits;
 
+macro_rules! try_fold_while {
+    ($e:expr) => {
+        match $e {
+            FoldWhile::Continue(t) => t,
+            done @ FoldWhile::Done(_) => return done,
+        }
+    }
+}
+
 /// An double-ended iterator with the direction inverted.
 ///
 /// This `struct` is created by the [`rev()`] method on [`Iterator`]. See its
@@ -406,10 +415,10 @@ impl<'a, I, T: 'a> Iterator for Cloned<I>
         self.it.size_hint()
     }
 
-    fn fold<Acc, F>(self, init: Acc, mut f: F) -> Acc
-        where F: FnMut(Acc, Self::Item) -> Acc,
+    fn fold_while<Acc, G>(&mut self, init: Acc, mut g: G) -> FoldWhile<Acc>
+        where G: FnMut(Acc, Self::Item) -> FoldWhile<Acc>
     {
-        self.it.fold(init, move |acc, elt| f(acc, elt.clone()))
+        self.it.fold_while(init, |acc, elt| g(acc, elt.clone()))
     }
 }
 
@@ -562,23 +571,23 @@ impl<A, B> Iterator for Chain<A, B> where
         }
     }
 
-    fn fold<Acc, F>(self, init: Acc, mut f: F) -> Acc
-        where F: FnMut(Acc, Self::Item) -> Acc,
+    fn fold_while<Acc, G>(&mut self, init: Acc, mut g: G) -> FoldWhile<Acc>
+        where G: FnMut(Acc, Self::Item) -> FoldWhile<Acc>
     {
         let mut accum = init;
         match self.state {
             ChainState::Both | ChainState::Front => {
-                accum = self.a.fold(accum, &mut f);
+                accum = try_fold_while!(self.a.fold_while(accum, &mut g));
             }
             _ => { }
         }
         match self.state {
             ChainState::Both | ChainState::Back => {
-                accum = self.b.fold(accum, &mut f);
+                accum = try_fold_while!(self.b.fold_while(accum, &mut g));
             }
             _ => { }
         }
-        accum
+        FoldWhile::Continue(accum)
     }
 
     #[inline]
@@ -987,11 +996,11 @@ impl<B, I: Iterator, F> Iterator for Map<I, F> where F: FnMut(I::Item) -> B {
         self.iter.size_hint()
     }
 
-    fn fold<Acc, G>(self, init: Acc, mut g: G) -> Acc
-        where G: FnMut(Acc, Self::Item) -> Acc,
+    fn fold_while<Acc, G>(&mut self, init: Acc, mut g: G) -> FoldWhile<Acc>
+        where G: FnMut(Acc, Self::Item) -> FoldWhile<Acc>
     {
-        let mut f = self.f;
-        self.iter.fold(init, move |acc, elt| g(acc, f(elt)))
+        let mut f = &mut self.f;
+        self.iter.fold_while(init, move |acc, elt| g(acc, f(elt)))
     }
 }
 
@@ -1753,20 +1762,20 @@ impl<I: Iterator, U: IntoIterator, F> Iterator for FlatMap<I, U, F>
         }
     }
 
-    fn fold<Acc, G>(self, init: Acc, mut f: G) -> Acc
-        where G: FnMut(Acc, Self::Item) -> Acc,
+    fn fold_while<Acc, G>(&mut self, init: Acc, mut g: G) -> FoldWhile<Acc>
+        where G: FnMut(Acc, Self::Item) -> FoldWhile<Acc>
     {
         let mut accum = init;
-        if let Some(iter) = self.frontiter {
-            accum = iter.fold(accum, &mut f);
+        if let Some(ref mut iter) = self.frontiter {
+            accum = try_fold_while!(iter.fold_while(accum, &mut g));
         }
-        for iter in self.iter.map(self.f) {
-            accum = iter.into_iter().fold(accum, &mut f);
+        for iter in &mut self.iter {
+            accum = try_fold_while!((self.f)(iter).into_iter().fold_while(accum, &mut g));
         }
-        if let Some(iter) = self.backiter {
-            accum = iter.fold(accum, &mut f);
+        if let Some(ref mut iter) = self.backiter {
+            accum = try_fold_while!(iter.fold_while(accum, &mut g));
         }
-        accum
+        FoldWhile::Continue(accum)
     }
 
     #[inline]
@@ -2018,3 +2027,26 @@ impl<I: ExactSizeIterator, F> ExactSizeIterator for Inspect<I, F>
 #[unstable(feature = "fused", issue = "35602")]
 impl<I: FusedIterator, F> FusedIterator for Inspect<I, F>
     where F: FnMut(&I::Item) {}
+
+
+#[unstable(feature = "iterator_fold_while", issue = "0")]
+#[derive(Copy, Clone, Debug)]
+/// An enum used for controlling the execution of `.fold_while()`.
+pub enum FoldWhile<T> {
+    /// Continue folding with this value
+    Continue(T),
+    /// Fold is complete and will return this value
+    Done(T),
+}
+
+impl<T> FoldWhile<T> {
+    /// Return the inner value.
+    #[unstable(feature = "iterator_fold_while", issue = "0")]
+    pub fn into_inner(self) -> T {
+        match self {
+            FoldWhile::Continue(t) => t,
+            FoldWhile::Done(t) => t,
+        }
+    }
+}
+
