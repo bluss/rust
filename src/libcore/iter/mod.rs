@@ -550,6 +550,25 @@ impl<A, B> Iterator for Chain<A, B> where
         }
     }
 
+    fn fold<Acc, F>(self, init: Acc, mut f: F) -> Acc
+        where F: FnMut(Acc, Self::Item) -> Acc,
+    {
+        let mut accum = init;
+        match self.state {
+            ChainState::Both | ChainState::Front => {
+                accum = self.a.fold(accum, &mut f);
+            }
+            _ => { }
+        }
+        match self.state {
+            ChainState::Both | ChainState::Back => {
+                accum = self.b.fold(accum, &mut f);
+            }
+            _ => { }
+        }
+        accum
+    }
+
     #[inline]
     fn nth(&mut self, mut n: usize) -> Option<A::Item> {
         match self.state {
@@ -1699,6 +1718,22 @@ impl<I: Iterator, U: IntoIterator, F> Iterator for FlatMap<I, U, F>
                 next => self.frontiter = next.map(IntoIterator::into_iter),
             }
         }
+    }
+
+    fn fold<Acc, G>(self, init: Acc, mut f: G) -> Acc
+        where G: FnMut(Acc, Self::Item) -> Acc,
+    {
+        let mut accum = init;
+        if let Some(iter) = self.frontiter {
+            accum = iter.fold(accum, &mut f);
+        }
+        for iter in self.iter.map(self.f) {
+            accum = iter.into_iter().fold(accum, &mut f);
+        }
+        if let Some(iter) = self.backiter {
+            accum = iter.fold(accum, &mut f);
+        }
+        accum
     }
 
     #[inline]
