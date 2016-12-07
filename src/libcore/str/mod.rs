@@ -22,6 +22,7 @@ use fmt;
 use iter::{Map, Cloned, FusedIterator};
 use mem;
 use slice;
+use iter_private::NextUnchecked;
 
 pub mod pattern;
 
@@ -346,7 +347,7 @@ fn unwrap_or_0(opt: Option<&u8>) -> u8 {
 /// UTF-8-like encoding).
 #[unstable(feature = "str_internals", issue = "0")]
 #[inline]
-pub fn next_code_point<'a, I: Iterator<Item = &'a u8>>(bytes: &mut I) -> Option<u32> {
+pub fn next_code_point<'a>(bytes: &mut slice::Iter<'a, u8>) -> Option<u32> {
     // Decode UTF-8
     let x = match bytes.next() {
         None => return None,
@@ -356,25 +357,26 @@ pub fn next_code_point<'a, I: Iterator<Item = &'a u8>>(bytes: &mut I) -> Option<
 
     // Multibyte case follows
     // Decode from a byte combination out of: [[[x y] z] w]
-    // NOTE: Performance is sensitive to the exact formulation here
+    unsafe {
     let init = utf8_first_byte(x, 2);
-    let y = unwrap_or_0(bytes.next());
+    let y = *bytes.next_unchecked();
     let mut ch = utf8_acc_cont_byte(init, y);
     if x >= 0xE0 {
         // [[x y z] w] case
         // 5th bit in 0xE0 .. 0xEF is always clear, so `init` is still valid
-        let z = unwrap_or_0(bytes.next());
+        let z = *bytes.next_unchecked();
         let y_z = utf8_acc_cont_byte((y & CONT_MASK) as u32, z);
         ch = init << 12 | y_z;
         if x >= 0xF0 {
             // [x y z w] case
             // use only the lower 3 bits of `init`
-            let w = unwrap_or_0(bytes.next());
+            let w = *bytes.next_unchecked();
             ch = (init & 7) << 18 | utf8_acc_cont_byte(y_z, w);
         }
     }
-
     Some(ch)
+    }
+
 }
 
 /// Reads the last code point out of a byte iterator (assuming a

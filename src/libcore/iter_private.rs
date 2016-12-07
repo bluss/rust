@@ -26,3 +26,8 @@ pub unsafe trait TrustedRandomAccess : ExactSizeIterator {
     /// side effects. Remember to take inner iterators into account.
     fn may_have_side_effect() -> bool;
 }
+
+#[doc(hidden)]
+pub unsafe trait NextUnchecked : Iterator {
+    unsafe fn next_unchecked(&mut self) -> Self::Item;
+}

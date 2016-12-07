@@ -46,7 +46,7 @@ use result::Result::{Ok, Err};
 use ptr;
 use mem;
 use marker::{Copy, Send, Sync, Sized, self};
-use iter_private::TrustedRandomAccess;
+use iter_private::{TrustedRandomAccess, NextUnchecked};
 
 #[repr(C)]
 struct Repr<T> {
@@ -1024,6 +1024,15 @@ macro_rules! iterator {
                         Some(slice_ref!(self.end))
                     }
                 }
+            }
+        }
+
+        #[doc(hidden)]
+        unsafe impl<'a, T> NextUnchecked for $name<'a, T> {
+            unsafe fn next_unchecked(&mut self) -> Self::Item {
+                let old = self.ptr;
+                self.ptr = slice_offset!(self.ptr, 1);
+                slice_ref!(old)
             }
         }
     }
