@@ -33,6 +33,8 @@ use def_use::DefUseAnalysis;
 use rustc::mir::{Constant, Local, Location, Lvalue, Mir, Operand, Rvalue, StatementKind};
 use rustc::mir::transform::{MirPass, MirSource, Pass};
 use rustc::mir::visit::MutVisitor;
+use rustc::mir::{ProjectionElem, LvalueProjection, BasicBlock, AggregateKind, Projection};
+use rustc::ty::AdtDef;
 use rustc::ty::TyCtxt;
 use transform::qualify_consts;
 
@@ -118,6 +120,7 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
                     };
 
                     // That use of the source must be an assignment.
+                    debug!(" statement.kind={:?}", statement.kind);
                     match statement.kind {
                         StatementKind::Assign(Lvalue::Local(local), Rvalue::Use(ref operand)) if
                                 local == dest_local => {
@@ -145,7 +148,9 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
                 changed = action.perform(mir, &def_use_analysis, dest_local, location) || changed;
                 // FIXME(pcwalton): Update the use-def chains to delete the instructions instead of
                 // regenerating the chains.
-                break
+                if changed {
+                    def_use_analysis.analyze(mir);
+                }
             }
             if !changed {
                 break
@@ -156,15 +161,66 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
 
 enum Action<'tcx> {
     PropagateLocalCopy(Local),
+    PropagateVariant(Local, &'tcx AdtDef, usize),
     PropagateConstant(Constant<'tcx>),
 }
 
 impl<'tcx> Action<'tcx> {
+    fn variant(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>,
+               lvalue_projection: &LvalueProjection<'tcx>) -> Option<Action<'tcx>>
+    {
+        // (_2 as Some)  { base: Local, elem: Downcast }
+        // (X.0: Ty)  { base: X, elem: Field(index, Ty) }
+        // ((_2 as Some).0: u32))
+        //   ^Downcast^
+        //  ^-- base --^
+        // ^--------------^ elem = field
+        debug!("lvalue projection base: {:?}", lvalue_projection.base);
+        debug!("lvalue projection elem: {:?}", lvalue_projection.elem);
+        let src_local;
+        let src_adt_def;
+        let src_variant;
+        match *lvalue_projection {
+           Projection {
+                base: ref inner_base,
+                elem: ProjectionElem::Field(field_index, ref ty)
+           } => {
+               match *inner_base {
+                   Lvalue::Projection(box Projection {
+                       base: Lvalue::Local(local),
+                       elem: ProjectionElem::Downcast(adt_def, variant),
+                   }) => {
+                       src_local = local;
+                       src_adt_def = adt_def;
+                       src_variant = variant;
+                   }
+                   _ => {
+                       debug!("Can't propagate variant: Not a downcast of local");
+                       return None;
+                   }
+               }
+           }
+           _ => {
+               debug!(" Can't propagate variant: not a variant 1");
+               return None;
+           }
+        }
+        let n_fields = src_adt_def.variants[src_variant].fields.len();
+        if n_fields != 1 {
+            debug!("Can't propagate variant: variant has {} fields (not 1)",
+                   n_fields);
+            return None;
+        }
+        Some(Action::PropagateVariant(src_local, src_adt_def, src_variant))
+    }
+
     fn local_copy(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>)
                   -> Option<Action<'tcx>> {
         // The source must be a local.
         let src_local = if let Lvalue::Local(local) = *src_lvalue {
             local
+        } else if let Lvalue::Projection(ref proj) = *src_lvalue {
+            return Action::variant(def_use_analysis, src_lvalue, proj);
         } else {
             debug!("  Can't copy-propagate local: source is not a local");
             return None;
@@ -287,6 +343,42 @@ impl<'tcx> Action<'tcx> {
                     true
                 }
             }
+            Action::PropagateVariant(src_local, adt_def, variant) => {
+                // we have DST = (SRC as Some).0: T
+                // Find Some(DST: T) and replace with SRC.
+                debug!("  Replacing variant constructions using {:?} with {:?}",
+                       dest_local,
+                       src_local);
+                for lvalue_use in &def_use_analysis.local_info(dest_local).defs_and_uses {
+                    if lvalue_use.context.is_storage_marker() {
+                        mir.make_statement_nop(lvalue_use.location)
+                    }
+                }
+
+                let mut visitor = AssignmentVisitor::new(dest_local,
+                                                         src_local, adt_def, variant);
+                let dest_local_info = def_use_analysis.local_info(dest_local);
+                for lvalue_use in &dest_local_info.defs_and_uses {
+                    visitor.visit_location(mir, lvalue_use.location);
+                }
+
+                let use_count = dest_local_info.use_count();
+                if visitor.uses_replaced == use_count {
+                    debug!("  {} of {} use(s) replaced; deleting assignment",
+                           visitor.uses_replaced,
+                           use_count);
+                    mir.make_statement_nop(location);
+                    true
+                } else if visitor.uses_replaced == 0 {
+                    debug!("  No uses replaced; not deleting assignment");
+                    false
+                } else {
+                    debug!("  {} of {} use(s) replaced; not deleting assignment",
+                           visitor.uses_replaced,
+                           use_count);
+                    true
+                }
+            }
         }
     }
 }
@@ -319,5 +411,62 @@ impl<'tcx> MutVisitor<'tcx> for ConstantPropagationVisitor<'tcx> {
 
         *operand = Operand::Constant(self.constant.clone());
         self.uses_replaced += 1
+    }
+}
+
+struct AssignmentVisitor<'tcx> {
+    replace_local: Local,
+    src_local: Local,
+    adt_def: &'tcx AdtDef,
+    variant: usize,
+    uses_replaced: usize,
+}
+
+impl<'tcx> AssignmentVisitor<'tcx> {
+    fn new(replace_local: Local, src_local: Local,
+           adt_def: &'tcx AdtDef, variant: usize) -> Self
+    {
+        Self {
+            replace_local,
+            src_local,
+            adt_def,
+            variant,
+            uses_replaced: 0,
+        }
+    }
+}
+
+impl<'tcx> MutVisitor<'tcx> for AssignmentVisitor<'tcx> {
+    fn visit_assign(&mut self,
+                    block: BasicBlock,
+                    lvalue: &mut Lvalue<'tcx>,
+                    rvalue: &mut Rvalue<'tcx>,
+                    location: Location) {
+        let mut replace = false;
+        match *rvalue {
+            Rvalue::Aggregate(ref kind, ref operands) => {
+                debug!("Aggregate kind: {:?}, operands: {:?}",
+                       kind, operands);
+                if operands.len() == 1 {
+                    if let Operand::Consume(Lvalue::Local(local)) = operands[0] {
+                        if local == self.replace_local {
+                            if let AggregateKind::Adt(adt_def, variant, substs, None) = *kind {
+                                if self.adt_def == adt_def && self.variant == variant {
+                                    // replace!
+                                    replace = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => { }
+        }
+        if replace {
+            *rvalue = Rvalue::Use(Operand::Consume(Lvalue::Local(self.src_local)));
+            self.uses_replaced += 1;
+        } else {
+            self.super_assign(block, lvalue, rvalue, location);
+        }
     }
 }
