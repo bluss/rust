@@ -33,7 +33,7 @@ use def_use::DefUseAnalysis;
 use rustc::mir::{Constant, Local, Location, Lvalue, Mir, Operand, Rvalue, StatementKind};
 use rustc::mir::transform::{MirPass, MirSource, Pass};
 use rustc::mir::visit::MutVisitor;
-use rustc::mir::{ProjectionElem, LvalueProjection, BasicBlock, AggregateKind, Projection};
+use rustc::mir::{ProjectionElem, BasicBlock, AggregateKind, Projection};
 use rustc::ty::AdtDef;
 use rustc::ty::TyCtxt;
 use transform::qualify_consts;
@@ -69,10 +69,15 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
 
         // We only run when the MIR optimization level is at least 1. This avoids messing up debug
         // info.
-        match tcx.sess.opts.debugging_opts.mir_opt_level {
+        // 
+        // MIR optimization level 1 or higher is required to enable continued
+        // iteration of copy propagation, as well as variant propagation.
+        let optimize_more = match tcx.sess.opts.debugging_opts.mir_opt_level {
             Some(0) | None => return,
-            _ => {}
-        }
+            Some(level) => level >= 1,
+        };
+
+        debug!("Running {}, optimize more={}", self.name(), optimize_more);
 
         loop {
             let mut def_use_analysis = DefUseAnalysis::new(mir);
@@ -126,7 +131,9 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
                                 local == dest_local => {
                             let maybe_action = match *operand {
                                 Operand::Consume(ref src_lvalue) => {
-                                    Action::local_copy(&def_use_analysis, src_lvalue)
+                                    Action::consume_lvalue(&def_use_analysis,
+                                                           src_lvalue,
+                                                           optimize_more)
                                 }
                                 Operand::Constant(ref src_constant) => {
                                     Action::constant(src_constant)
@@ -145,10 +152,14 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
                     }
                 }
 
-                changed = action.perform(mir, &def_use_analysis, dest_local, location) || changed;
+                let this_changed = action.perform(mir, &def_use_analysis, dest_local, location);
+                changed |= this_changed;
+                if !optimize_more {
+                    break;
+                }
                 // FIXME(pcwalton): Update the use-def chains to delete the instructions instead of
                 // regenerating the chains.
-                if changed {
+                if this_changed {
                     def_use_analysis.analyze(mir);
                 }
             }
@@ -166,9 +177,26 @@ enum Action<'tcx> {
 }
 
 impl<'tcx> Action<'tcx> {
-    fn variant(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>,
-               lvalue_projection: &LvalueProjection<'tcx>) -> Option<Action<'tcx>>
-    {
+    fn consume_lvalue(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>,
+                      allow_variant_prop: bool)
+                      -> Option<Action<'tcx>> {
+        Action::local_copy(def_use_analysis, src_lvalue)
+            .or_else(|| if allow_variant_prop {
+                Action::variant(def_use_analysis, src_lvalue)
+            } else {
+                None
+            })
+    }
+
+    fn variant(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>)
+               -> Option<Action<'tcx>> {
+        let lvalue_projection = if let Lvalue::Projection(ref proj) = *src_lvalue {
+            &**proj
+        } else {
+            debug!(" Can't propagate variant");
+            return None;
+        };
+
         // (_2 as Some)  { base: Local, elem: Downcast }
         // (X.0: Ty)  { base: X, elem: Field(index, Ty) }
         // ((_2 as Some).0: u32))
@@ -183,7 +211,7 @@ impl<'tcx> Action<'tcx> {
         match *lvalue_projection {
            Projection {
                 base: ref inner_base,
-                elem: ProjectionElem::Field(field_index, ref ty)
+                elem: ProjectionElem::Field(..),
            } => {
                match *inner_base {
                    Lvalue::Projection(box Projection {
@@ -219,8 +247,6 @@ impl<'tcx> Action<'tcx> {
         // The source must be a local.
         let src_local = if let Lvalue::Local(local) = *src_lvalue {
             local
-        } else if let Lvalue::Projection(ref proj) = *src_lvalue {
-            return Action::variant(def_use_analysis, src_lvalue, proj);
         } else {
             debug!("  Can't copy-propagate local: source is not a local");
             return None;
@@ -450,7 +476,7 @@ impl<'tcx> MutVisitor<'tcx> for AssignmentVisitor<'tcx> {
                 if operands.len() == 1 {
                     if let Operand::Consume(Lvalue::Local(local)) = operands[0] {
                         if local == self.replace_local {
-                            if let AggregateKind::Adt(adt_def, variant, substs, None) = *kind {
+                            if let AggregateKind::Adt(adt_def, variant, _, None) = *kind {
                                 if self.adt_def == adt_def && self.variant == variant {
                                     // replace!
                                     replace = true;
