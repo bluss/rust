@@ -30,7 +30,7 @@
 //! future.
 
 use def_use::DefUseAnalysis;
-use rustc::mir::{Constant, Local, Location, Lvalue, Mir, Operand, Rvalue, StatementKind};
+use rustc::mir::{Constant, Local, LocalKind, Location, Lvalue, Mir, Operand, Rvalue, StatementKind};
 use rustc::mir::transform::{MirPass, MirSource, Pass};
 use rustc::mir::visit::MutVisitor;
 use rustc::mir::{BasicBlock, AggregateKind, Projection, ProjectionElem};
@@ -189,7 +189,7 @@ impl<'tcx> Action<'tcx> {
                           src_lvalue: &Lvalue<'tcx>,
                           allow_variant_prop: bool)
                           -> Option<Action<'tcx>> {
-        Action::local_copy(def_use_analysis, src_lvalue)
+        Action::local_copy(mir, def_use_analysis, src_lvalue)
             .or_else(|| if allow_variant_prop {
                 Action::variant(mir, tcx, def_use_analysis, src_lvalue)
             } else {
@@ -259,7 +259,7 @@ impl<'tcx> Action<'tcx> {
         Some(Action::PropagateVariant(src_local, src_type, src_variant))
     }
 
-    fn local_copy(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>)
+    fn local_copy(mir: &Mir<'tcx>, def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>)
                   -> Option<Action<'tcx>> {
         // The source must be a local.
         let src_local = if let Lvalue::Local(local) = *src_lvalue {
@@ -294,10 +294,8 @@ impl<'tcx> Action<'tcx> {
         //
         //     SRC = X;
         //     USE(SRC);
-        //
-        // The 0 defs case is ok (it can be a function argument)
         let src_def_count = src_use_info.def_count_not_including_drop();
-        if src_def_count > 1 {
+        if mir.local_kind(src_local) != LocalKind::Arg && src_def_count != 1 {
             debug!("  Can't copy-propagate local: {} defs of src",
                    src_use_info.def_count_not_including_drop());
             return None
