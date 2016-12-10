@@ -67,16 +67,13 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
             }
         }
 
-        // We only run when the MIR optimization level is at least 1. This avoids messing up debug
+        // We only run when the MIR optimization level is at least 2. This avoids messing up debug
         // info.
-        //
-        // MIR optimization level 1 or higher is required to enable continued
-        // iteration of copy propagation, as well as variant propagation.
-        let optimize_more = match tcx.sess.opts.debugging_opts.mir_opt_level {
-            Some(0) | None => return,
-            Some(level) => level >= 1,
+        if tcx.sess.opts.mir_opt_level <= 1 {
+            return;
         };
 
+        let optimize_more = tcx.sess.opts.mir_opt_level > 2;
         debug!("Running {}, optimize more={}", self.name(), optimize_more);
 
         loop {
