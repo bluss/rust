@@ -69,7 +69,7 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
 
         // We only run when the MIR optimization level is at least 1. This avoids messing up debug
         // info.
-        // 
+        //
         // MIR optimization level 1 or higher is required to enable continued
         // iteration of copy propagation, as well as variant propagation.
         let optimize_more = match tcx.sess.opts.debugging_opts.mir_opt_level {
@@ -212,7 +212,7 @@ impl<'tcx> Action<'tcx> {
         // X = ((SRC as Variant).Index: Type)
         // DST = Enum::<Type>::Variant(X)
         // with the restriction that the type of SRC is type of DST.
-        // 
+        //
         // Replace with:
         // DST = SRC
 
@@ -504,7 +504,7 @@ impl<'a, 'tcx> MutVisitor<'tcx> for AssignmentVisitor<'a, 'tcx> {
                 if let Operand::Consume(Lvalue::Local(local)) = operands[0] {
                     if local == self.replace_local {
                         if let AggregateKind::Adt(adt_def, variant, substs, None) = *kind {
-                            let adt_type = self.tcx.mk_adt(adt_def, substs); 
+                            let adt_type = self.tcx.mk_adt(adt_def, substs);
                             if adt_type == self.src_type {
                                 if self.variant == variant {
                                     // replace!
