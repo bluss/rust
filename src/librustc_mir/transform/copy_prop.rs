@@ -294,8 +294,10 @@ impl<'tcx> Action<'tcx> {
         //
         //     SRC = X;
         //     USE(SRC);
+        //
+        // The 0 defs case is ok (it can be a function argument)
         let src_def_count = src_use_info.def_count_not_including_drop();
-        if src_def_count != 1 {
+        if src_def_count > 1 {
             debug!("  Can't copy-propagate local: {} defs of src",
                    src_use_info.def_count_not_including_drop());
             return None
