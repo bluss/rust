@@ -33,11 +33,10 @@ use def_use::DefUseAnalysis;
 use rustc::mir::{Constant, Local, Location, Lvalue, Mir, Operand, Rvalue, StatementKind};
 use rustc::mir::transform::{MirPass, MirSource, Pass};
 use rustc::mir::visit::MutVisitor;
-use rustc::mir::{ProjectionElem, BasicBlock, AggregateKind, Projection};
-use rustc::mir::tcx::LvalueTy;
-use rustc::ty::{Ty, AdtDef};
-use rustc::ty::TyCtxt;
+use rustc::mir::{BasicBlock, AggregateKind, Projection, ProjectionElem};
+use rustc::ty::{Ty, TyCtxt};
 use transform::qualify_consts;
+use rustc_data_structures::indexed_vec::Idx;
 
 pub struct CopyPropagation;
 
@@ -155,18 +154,18 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
                     }
                 }
 
-                let this_changed = action.perform(mir,
-                                                  tcx,
-                                                  &def_use_analysis,
-                                                  dest_local,
-                                                  location);
-                changed |= this_changed;
+                let new_change = action.perform(mir,
+                                                tcx,
+                                                &def_use_analysis,
+                                                dest_local,
+                                                location);
+                changed |= new_change;
                 if !optimize_more {
                     break;
                 }
                 // FIXME(pcwalton): Update the use-def chains to delete the instructions instead of
                 // regenerating the chains.
-                if this_changed {
+                if new_change {
                     def_use_analysis.analyze(mir);
                 }
             }
@@ -179,7 +178,7 @@ impl<'tcx> MirPass<'tcx> for CopyPropagation {
 
 enum Action<'tcx> {
     PropagateLocalCopy(Local),
-    PropagateVariant(Local, Ty<'tcx>, &'tcx AdtDef, usize),
+    PropagateVariant(Local, Ty<'tcx>, usize /* variant */),
     PropagateConstant(Constant<'tcx>),
 }
 
@@ -206,59 +205,58 @@ impl<'tcx> Action<'tcx> {
         let lvalue_projection = if let Lvalue::Projection(ref proj) = *src_lvalue {
             &**proj
         } else {
-            debug!(" Can't propagate variant");
             return None;
         };
 
-        // (_2 as Some)  { base: Local, elem: Downcast }
-        // (X.0: Ty)  { base: X, elem: Field(index, Ty) }
-        // ((_2 as Some).0: u32))
-        //   ^Downcast^
-        //  ^-- base --^
-        // ^--------------^ elem = field
-        debug!("lvalue projection base: {:?}", lvalue_projection.base);
-        debug!("lvalue projection elem: {:?}", lvalue_projection.elem);
+        // Match:
+        // X = ((SRC as Variant).Index: Type)
+        // DST = Enum::<Type>::Variant(X)
+        // with the restriction that the type of SRC is type of DST.
+        // 
+        // Replace with:
+        // DST = SRC
+
         let src_local;
         let src_type;
         let src_adt_def;
         let src_variant;
         match *lvalue_projection {
            Projection {
-                base: ref inner_base,
-                elem: ProjectionElem::Field(..),
+                base: Lvalue::Projection(box Projection {
+                    base: ref inner_base @ Lvalue::Local(_),
+                    elem: ProjectionElem::Downcast(adt_def, variant),
+                }),
+                elem: ProjectionElem::Field(field_index, ..),
            } => {
-               match *inner_base {
-                   Lvalue::Projection(box Projection {
-                       base: ref base @ Lvalue::Local(_),
-                       elem: ProjectionElem::Downcast(adt_def, variant),
-                   }) => {
-                       src_local = if let Lvalue::Local(local) = *base {
-                           local
-                       } else {
-                           unreachable!();
-                       };
-                       src_type = base.ty(mir, tcx).to_ty(tcx);
-                       src_adt_def = adt_def;
-                       src_variant = variant;
-                   }
-                   _ => {
-                       debug!("Can't propagate variant: Not a downcast of local");
-                       return None;
-                   }
+               src_local = if let Lvalue::Local(local) = *inner_base {
+                   local
+               } else {
+                   unreachable!();
+               };
+               if field_index.index() != 0 {
+                   bug!("Variant has > 1 field");
                }
+               src_type = inner_base.ty(mir, tcx).to_ty(tcx);
+               src_adt_def = adt_def;
+               src_variant = variant;
            }
            _ => {
-               debug!(" Can't propagate variant: not a variant 1");
+               debug!(" Can't copy-propagate variant: not a variant");
                return None;
            }
         }
         let n_fields = src_adt_def.variants[src_variant].fields.len();
         if n_fields != 1 {
-            debug!("Can't propagate variant: variant has {} fields (not 1)",
-                   n_fields);
+            debug!("  Can't copy-propagate variant: variant has {} fields (not 1)", n_fields);
             return None;
         }
-        Some(Action::PropagateVariant(src_local, src_type, src_adt_def, src_variant))
+        let src_use_info = def_use_analysis.local_info(src_local);
+        let src_use_count = src_use_info.use_count();
+        if src_use_count == 0 {
+            debug!("  Can't copy-propagate variant: no uses");
+            return None
+        }
+        Some(Action::PropagateVariant(src_local, src_type, src_variant))
     }
 
     fn local_copy(def_use_analysis: &DefUseAnalysis, src_lvalue: &Lvalue<'tcx>)
@@ -310,6 +308,7 @@ impl<'tcx> Action<'tcx> {
         Some(Action::PropagateConstant((*src_constant).clone()))
     }
 
+    /// Return `true` if mir changed
     fn perform<'a>(self,
                    mir: &mut Mir<'tcx>,
                    tcx: TyCtxt<'a, 'tcx, 'tcx>,
@@ -389,7 +388,7 @@ impl<'tcx> Action<'tcx> {
                     true
                 }
             }
-            Action::PropagateVariant(src_local, src_type, adt_def, variant) => {
+            Action::PropagateVariant(src_local, src_type, variant) => {
                 // we have DST = (SRC as Some).0: T
                 // Find Some(DST: T) and replace with SRC.
                 debug!("  Replacing variant constructions using {:?} with {:?}",
@@ -404,7 +403,6 @@ impl<'tcx> Action<'tcx> {
                 let mut visitor = AssignmentVisitor::new(dest_local,
                                                          src_local,
                                                          src_type,
-                                                         adt_def,
                                                          variant,
                                                          tcx);
                 let dest_local_info = def_use_analysis.local_info(dest_local);
@@ -468,7 +466,6 @@ struct AssignmentVisitor<'a, 'tcx: 'a> {
     replace_local: Local,
     src_local: Local,
     src_type: Ty<'tcx>,
-    adt_def: &'tcx AdtDef,
     variant: usize,
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     uses_replaced: usize,
@@ -478,7 +475,6 @@ impl<'a, 'tcx> AssignmentVisitor<'a, 'tcx> {
     fn new(replace_local: Local,
            src_local: Local,
            src_type: Ty<'tcx>,
-           adt_def: &'tcx AdtDef,
            variant: usize,
            tcx: TyCtxt<'a, 'tcx, 'tcx>) -> Self
     {
@@ -486,7 +482,6 @@ impl<'a, 'tcx> AssignmentVisitor<'a, 'tcx> {
             replace_local,
             src_local,
             src_type,
-            adt_def,
             variant,
             tcx,
             uses_replaced: 0,
@@ -501,25 +496,21 @@ impl<'a, 'tcx> MutVisitor<'tcx> for AssignmentVisitor<'a, 'tcx> {
                     rvalue: &mut Rvalue<'tcx>,
                     location: Location) {
         let mut replace = false;
-        debug!("Run replace variant, adt_def={:?}", self.adt_def);
+        debug!("  Attempt to replace variant type={:?} variant={}", self.src_type, self.variant);
         match *rvalue {
-            Rvalue::Aggregate(ref kind, ref operands) => {
-                debug!("Aggregate kind: {:?}, operands: {:?}",
-                       kind, operands);
-                if operands.len() == 1 {
-                    if let Operand::Consume(Lvalue::Local(local)) = operands[0] {
-                        if local == self.replace_local {
-                            if let AggregateKind::Adt(adt_def, variant, substs, None) = *kind {
-                                let adt_type = self.tcx.mk_adt(adt_def, substs); 
-                                if adt_type == self.src_type {
-                                    if self.variant == variant {
-                                        // replace!
-                                        replace = true;
-                                    }
-                                } else {
-                                    debug!(" Can't propagate variant {:?}: not correct type",
-                                           self.src_local);
+            Rvalue::Aggregate(ref kind, ref operands) if operands.len() == 1 => {
+                if let Operand::Consume(Lvalue::Local(local)) = operands[0] {
+                    if local == self.replace_local {
+                        if let AggregateKind::Adt(adt_def, variant, substs, None) = *kind {
+                            let adt_type = self.tcx.mk_adt(adt_def, substs); 
+                            if adt_type == self.src_type {
+                                if self.variant == variant {
+                                    // replace!
+                                    replace = true;
                                 }
+                            } else {
+                                debug!(" Can't propagate variant {:?}: not correct type",
+                                       self.src_local);
                             }
                         }
                     }
