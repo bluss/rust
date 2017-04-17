@@ -18,14 +18,14 @@ function, rather than leaving it off. Otherwise, you’ll get an error.
 
 In many languages, a variable binding would be called a *variable*, but Rust’s
 variable bindings have a few tricks up their sleeves. For example the
-left-hand side of a `let` expression is a ‘[pattern][pattern]’, not a
+left-hand side of a `let` statement is a ‘[pattern][pattern]’, not a
 variable name. This means we can do things like:
 
 ```rust
 let (x, y) = (1, 2);
 ```
 
-After this expression is evaluated, `x` will be one, and `y` will be two.
+After this statement is evaluated, `x` will be one, and `y` will be two.
 Patterns are really powerful, and have [their own section][pattern] in the
 book. We don’t need those features for now, so we’ll keep this in the back
 of our minds as we go forward.
@@ -37,8 +37,8 @@ of our minds as we go forward.
 Rust is a statically typed language, which means that we specify our types up
 front, and they’re checked at compile time. So why does our first example
 compile? Well, Rust has this thing called ‘type inference’. If it can figure
-out what the type of something is, Rust doesn’t require you to actually type it
-out.
+out what the type of something is, Rust doesn’t require you to explicitly type
+it out.
 
 We can add the type if we want to, though. Types come after a colon (`:`):
 
@@ -47,7 +47,7 @@ let x: i32 = 5;
 ```
 
 If I asked you to read this out loud to the rest of the class, you’d say “`x`
-is a binding with the type `i32` and the value `five`.”
+is a binding with the type `i32` and the value `5`.”
 
 In this case we chose to represent `x` as a 32-bit signed integer. Rust has
 many different primitive integer types. They begin with `i` for signed integers
@@ -125,7 +125,7 @@ warning, but it will still print "Hello, world!":
 
 ```text
    Compiling hello_world v0.0.1 (file:///home/you/projects/hello_world)
-src/main.rs:2:9: 2:10 warning: unused variable: `x`, #[warn(unused_variable)]
+src/main.rs:2:9: 2:10 warning: unused variable: `x`, #[warn(unused_variables)]
    on by default
 src/main.rs:2     let x: i32;
                       ^
@@ -159,8 +159,9 @@ error: aborting due to previous error
 Could not compile `hello_world`.
 ```
 
-Rust will not let us use a value that has not been initialized. Next, let’s
-talk about this stuff we've added to `println!`.
+Rust will not let us use a value that has not been initialized.
+
+Let us take a minute to talk about this stuff we've added to `println!`.
 
 If you include two curly braces (`{}`, some call them moustaches...) in your
 string to print, Rust will interpret this as a request to interpolate some sort
@@ -193,7 +194,7 @@ fn main() {
         let y: i32 = 3;
         println!("The value of x is {} and value of y is {}", x, y);
     }
-    println!("The value of x is {} and value of y is {}", x, y); // This won't work
+    println!("The value of x is {} and value of y is {}", x, y); // This won't work.
 }
 ```
 
@@ -206,7 +207,7 @@ Instead we get this error:
 $ cargo build
    Compiling hello v0.1.0 (file:///home/you/projects/hello_world)
 main.rs:7:62: 7:63 error: unresolved name `y`. Did you mean `x`? [E0425]
-main.rs:7     println!("The value of x is {} and value of y is {}", x, y); // This won't work
+main.rs:7     println!("The value of x is {} and value of y is {}", x, y); // This won't work.
                                                                        ^
 note: in expansion of format_args!
 <std macros>:2:25: 2:56 note: expansion site
@@ -222,31 +223,34 @@ To learn more, run the command again with --verbose.
 ```
 
 Additionally, variable bindings can be shadowed. This means that a later
-variable binding with the same name as another binding, that's currently in
-scope, will override the previous binding.
+variable binding with the same name as another binding that is currently in
+scope will override the previous binding.
 
 ```rust
 let x: i32 = 8;
 {
-    println!("{}", x); // Prints "8"
+    println!("{}", x); // Prints "8".
     let x = 12;
-    println!("{}", x); // Prints "12"
+    println!("{}", x); // Prints "12".
 }
-println!("{}", x); // Prints "8"
+println!("{}", x); // Prints "8".
 let x =  42;
-println!("{}", x); // Prints "42"
+println!("{}", x); // Prints "42".
 ```
 
 Shadowing and mutable bindings may appear as two sides of the same coin, but
 they are two distinct concepts that can't always be used interchangeably. For
 one, shadowing enables us to rebind a name to a value of a different type. It
-is also possible to change the mutability of a binding.
+is also possible to change the mutability of a binding. Note that shadowing a 
+name does not alter or destroy the value it was bound to, and the value will
+continue to exist until it goes out of scope, even if it is no longer accessible
+by any means.
 
 ```rust
 let mut x: i32 = 1;
 x = 7;
-let x = x; // x is now immutable and is bound to 7
+let x = x; // `x` is now immutable and is bound to `7`.
 
 let y = 4;
-let y = "I can also be bound to text!"; // y is now of a different type
+let y = "I can also be bound to text!"; // `y` is now of a different type.
 ```

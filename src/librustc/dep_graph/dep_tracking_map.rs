@@ -8,7 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use rustc_data_structures::fnv::FnvHashMap;
+use hir::def_id::DefId;
+use rustc_data_structures::fx::FxHashMap;
 use std::cell::RefCell;
 use std::ops::Index;
 use std::hash::Hash;
@@ -23,13 +24,13 @@ use super::{DepNode, DepGraph};
 pub struct DepTrackingMap<M: DepTrackingMapConfig> {
     phantom: PhantomData<M>,
     graph: DepGraph,
-    map: FnvHashMap<M::Key, M::Value>,
+    map: FxHashMap<M::Key, M::Value>,
 }
 
 pub trait DepTrackingMapConfig {
     type Key: Eq + Hash + Clone;
     type Value: Clone;
-    fn to_dep_node(key: &Self::Key) -> DepNode;
+    fn to_dep_node(key: &Self::Key) -> DepNode<DefId>;
 }
 
 impl<M: DepTrackingMapConfig> DepTrackingMap<M> {
@@ -37,7 +38,7 @@ impl<M: DepTrackingMapConfig> DepTrackingMap<M> {
         DepTrackingMap {
             phantom: PhantomData,
             graph: graph,
-            map: FnvHashMap()
+            map: FxHashMap()
         }
     }
 
@@ -60,6 +61,12 @@ impl<M: DepTrackingMapConfig> DepTrackingMap<M> {
         self.map.get(k)
     }
 
+    pub fn get_mut(&mut self, k: &M::Key) -> Option<&mut M::Value> {
+        self.read(k);
+        self.write(k);
+        self.map.get_mut(k)
+    }
+
     pub fn insert(&mut self, k: M::Key, v: M::Value) -> Option<M::Value> {
         self.write(&k);
         self.map.insert(k, v)
@@ -68,6 +75,21 @@ impl<M: DepTrackingMapConfig> DepTrackingMap<M> {
     pub fn contains_key(&self, k: &M::Key) -> bool {
         self.read(k);
         self.map.contains_key(k)
+    }
+
+    pub fn keys(&self) -> Vec<M::Key> {
+        self.map.keys().cloned().collect()
+    }
+
+    /// Append `elem` to the vector stored for `k`, creating a new vector if needed.
+    /// This is considered a write to `k`.
+    pub fn push<E: Clone>(&mut self, k: M::Key, elem: E)
+        where M: DepTrackingMapConfig<Value=Vec<E>>
+    {
+        self.write(&k);
+        self.map.entry(k)
+                .or_insert(Vec::new())
+                .push(elem);
     }
 }
 
@@ -90,15 +112,15 @@ impl<M: DepTrackingMapConfig> MemoizationMap for RefCell<DepTrackingMap<M>> {
     /// switched to `Map(key)`. Therefore, if `op` makes use of any
     /// HIR nodes or shared state accessed through its closure
     /// environment, it must explicitly register a read of that
-    /// state. As an example, see `type_scheme_of_item` in `collect`,
+    /// state. As an example, see `type_of_item` in `collect`,
     /// which looks something like this:
     ///
     /// ```
-    /// fn type_scheme_of_item(..., item: &hir::Item) -> ty::TypeScheme<'tcx> {
+    /// fn type_of_item(..., item: &hir::Item) -> Ty<'tcx> {
     ///     let item_def_id = ccx.tcx.map.local_def_id(it.id);
-    ///     ccx.tcx.tcache.memoized(item_def_id, || {
+    ///     ccx.tcx.item_types.memoized(item_def_id, || {
     ///         ccx.tcx.dep_graph.read(DepNode::Hir(item_def_id)); // (*)
-    ///         compute_type_scheme_of_item(ccx, item)
+    ///         compute_type_of_item(ccx, item)
     ///     });
     /// }
     /// ```

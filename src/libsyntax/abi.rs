@@ -8,26 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-pub use self::Os::*;
-pub use self::Abi::*;
-pub use self::Architecture::*;
-pub use self::AbiArchitecture::*;
-
 use std::fmt;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[allow(non_camel_case_types)]
 pub enum Os {
-    OsWindows,
-    OsMacos,
-    OsLinux,
-    OsAndroid,
-    OsFreebsd,
-    OsiOS,
-    OsDragonfly,
-    OsBitrig,
-    OsNetbsd,
-    OsOpenbsd,
-    OsNaCl,
+    Windows,
+    Macos,
+    Linux,
+    Android,
+    Freebsd,
+    iOS,
+    Dragonfly,
+    Bitrig,
+    Netbsd,
+    Openbsd,
+    NaCl,
+    Haiku,
+    Solaris,
 }
 
 #[derive(PartialEq, Eq, Hash, RustcEncodable, RustcDecodable, Clone, Copy, Debug)]
@@ -35,15 +33,16 @@ pub enum Abi {
     // NB: This ordering MUST match the AbiDatas array below.
     // (This is ensured by the test indices_are_correct().)
 
-    // Single platform ABIs come first (`for_arch()` relies on this)
+    // Single platform ABIs
     Cdecl,
     Stdcall,
     Fastcall,
     Vectorcall,
     Aapcs,
     Win64,
+    SysV64,
 
-    // Multiplatform ABIs second
+    // Multiplatform / generic ABIs
     Rust,
     C,
     System,
@@ -66,40 +65,31 @@ pub enum Architecture {
 pub struct AbiData {
     abi: Abi,
 
-    // Name of this ABI as we like it called.
+    /// Name of this ABI as we like it called.
     name: &'static str,
-}
 
-#[derive(Copy, Clone)]
-pub enum AbiArchitecture {
-    /// Not a real ABI (e.g., intrinsic)
-    RustArch,
-    /// An ABI that specifies cross-platform defaults (e.g., "C")
-    AllArch,
-    /// Multiple architectures (bitset)
-    Archs(u32)
+    /// A generic ABI is supported on all platforms.
+    generic: bool,
 }
 
 #[allow(non_upper_case_globals)]
 const AbiDatas: &'static [AbiData] = &[
     // Platform-specific ABIs
-    AbiData {abi: Cdecl, name: "cdecl" },
-    AbiData {abi: Stdcall, name: "stdcall" },
-    AbiData {abi: Fastcall, name: "fastcall" },
-    AbiData {abi: Vectorcall, name: "vectorcall"},
-    AbiData {abi: Aapcs, name: "aapcs" },
-    AbiData {abi: Win64, name: "win64" },
+    AbiData {abi: Abi::Cdecl, name: "cdecl", generic: false },
+    AbiData {abi: Abi::Stdcall, name: "stdcall", generic: false },
+    AbiData {abi: Abi::Fastcall, name: "fastcall", generic: false },
+    AbiData {abi: Abi::Vectorcall, name: "vectorcall", generic: false},
+    AbiData {abi: Abi::Aapcs, name: "aapcs", generic: false },
+    AbiData {abi: Abi::Win64, name: "win64", generic: false },
+    AbiData {abi: Abi::SysV64, name: "sysv64", generic: false },
 
     // Cross-platform ABIs
-    //
-    // NB: Do not adjust this ordering without
-    // adjusting the indices below.
-    AbiData {abi: Rust, name: "Rust" },
-    AbiData {abi: C, name: "C" },
-    AbiData {abi: System, name: "system" },
-    AbiData {abi: RustIntrinsic, name: "rust-intrinsic" },
-    AbiData {abi: RustCall, name: "rust-call" },
-    AbiData {abi: PlatformIntrinsic, name: "platform-intrinsic" }
+    AbiData {abi: Abi::Rust, name: "Rust", generic: true },
+    AbiData {abi: Abi::C, name: "C", generic: true },
+    AbiData {abi: Abi::System, name: "system", generic: true },
+    AbiData {abi: Abi::RustIntrinsic, name: "rust-intrinsic", generic: true },
+    AbiData {abi: Abi::RustCall, name: "rust-call", generic: true },
+    AbiData {abi: Abi::PlatformIntrinsic, name: "platform-intrinsic", generic: true },
 ];
 
 /// Returns the ABI with the given name (if any).
@@ -125,6 +115,10 @@ impl Abi {
     pub fn name(&self) -> &'static str {
         self.data().name
     }
+
+    pub fn generic(&self) -> bool {
+        self.data().generic
+    }
 }
 
 impl fmt::Display for Abi {
@@ -136,17 +130,19 @@ impl fmt::Display for Abi {
 impl fmt::Display for Os {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            OsLinux => "linux".fmt(f),
-            OsWindows => "windows".fmt(f),
-            OsMacos => "macos".fmt(f),
-            OsiOS => "ios".fmt(f),
-            OsAndroid => "android".fmt(f),
-            OsFreebsd => "freebsd".fmt(f),
-            OsDragonfly => "dragonfly".fmt(f),
-            OsBitrig => "bitrig".fmt(f),
-            OsNetbsd => "netbsd".fmt(f),
-            OsOpenbsd => "openbsd".fmt(f),
-            OsNaCl => "nacl".fmt(f),
+            Os::Linux => "linux".fmt(f),
+            Os::Windows => "windows".fmt(f),
+            Os::Macos => "macos".fmt(f),
+            Os::iOS => "ios".fmt(f),
+            Os::Android => "android".fmt(f),
+            Os::Freebsd => "freebsd".fmt(f),
+            Os::Dragonfly => "dragonfly".fmt(f),
+            Os::Bitrig => "bitrig".fmt(f),
+            Os::Netbsd => "netbsd".fmt(f),
+            Os::Openbsd => "openbsd".fmt(f),
+            Os::NaCl => "nacl".fmt(f),
+            Os::Haiku => "haiku".fmt(f),
+            Os::Solaris => "solaris".fmt(f),
         }
     }
 }

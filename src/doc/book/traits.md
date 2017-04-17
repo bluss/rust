@@ -47,6 +47,34 @@ As you can see, the `trait` block looks very similar to the `impl` block,
 but we don’t define a body, only a type signature. When we `impl` a trait,
 we use `impl Trait for Item`, rather than only `impl Item`.
 
+`Self` may be used in a type annotation to refer to an instance of the type
+implementing this trait passed as a parameter. `Self`, `&Self` or `&mut Self`
+may be used depending on the level of ownership required.
+
+```rust
+struct Circle {
+    x: f64,
+    y: f64,
+    radius: f64,
+}
+
+trait HasArea {
+    fn area(&self) -> f64;
+
+    fn is_larger(&self, &Self) -> bool;
+}
+
+impl HasArea for Circle {
+    fn area(&self) -> f64 {
+        std::f64::consts::PI * (self.radius * self.radius)
+    }
+
+    fn is_larger(&self, other: &Self) -> bool {
+        self.area() > other.area()
+    }
+}
+```
+
 ## Trait bounds on generic functions
 
 Traits are useful because they allow a type to make certain promises about its
@@ -154,7 +182,7 @@ print_area(5);
 We get a compile-time error:
 
 ```text
-error: the trait `HasArea` is not implemented for the type `_` [E0277]
+error: the trait bound `_ : HasArea` is not satisfied [E0277]
 ```
 
 ## Trait bounds on generic structs
@@ -195,7 +223,7 @@ fn main() {
 `is_square()` needs to check that the sides are equal, so the sides must be of
 a type that implements the [`core::cmp::PartialEq`][PartialEq] trait:
 
-```ignore
+```rust,ignore
 impl<T: PartialEq> Rectangle<T> { ... }
 ```
 
@@ -215,27 +243,21 @@ to know more about [operator traits][operators-and-overloading].
 # Rules for implementing traits
 
 So far, we’ve only added trait implementations to structs, but you can
-implement a trait for any type. So technically, we _could_ implement `HasArea`
-for `i32`:
+implement a trait for any type such as `f32`:
 
 ```rust
-trait HasArea {
-    fn area(&self) -> f64;
+trait ApproxEqual {
+    fn approx_equal(&self, other: &Self) -> bool;
 }
-
-impl HasArea for i32 {
-    fn area(&self) -> f64 {
-        println!("this is silly");
-
-        *self as f64
+impl ApproxEqual for f32 {
+    fn approx_equal(&self, other: &Self) -> bool {
+        // Appropriate for `self` and `other` being close to 1.0.
+        (self - other).abs() <= ::std::f32::EPSILON
     }
 }
 
-5.area();
+println!("{}", 1.0.approx_equal(&1.00000001));
 ```
-
-It is considered poor style to implement methods on such primitive types, even
-though it is possible.
 
 This may seem like the Wild West, but there are two restrictions around
 implementing traits that prevent this from getting out of hand. The first is
@@ -247,10 +269,10 @@ won’t have its methods:
 [write]: ../std/io/trait.Write.html
 
 ```rust,ignore
-let mut f = std::fs::File::open("foo.txt").expect("Couldn’t open foo.txt");
-let buf = b"whatever"; // byte string literal. buf: &[u8; 8]
+let mut f = std::fs::File::create("foo.txt").expect("Couldn’t create foo.txt");
+let buf = b"whatever"; // buf: &[u8; 8], a byte string literal.
 let result = f.write(buf);
-# result.unwrap(); // ignore the error
+# result.unwrap(); // Ignore the error.
 ```
 
 Here’s the error:
@@ -263,13 +285,13 @@ let result = f.write(buf);
 
 We need to `use` the `Write` trait first:
 
-```rust,ignore
+```rust,no_run
 use std::io::Write;
 
-let mut f = std::fs::File::open("foo.txt").expect("Couldn’t open foo.txt");
+let mut f = std::fs::File::create("foo.txt").expect("Couldn’t create foo.txt");
 let buf = b"whatever";
 let result = f.write(buf);
-# result.unwrap(); // ignore the error
+# result.unwrap(); // Ignore the error.
 ```
 
 This will compile without error.
@@ -277,16 +299,22 @@ This will compile without error.
 This means that even if someone does something bad like add methods to `i32`,
 it won’t affect you, unless you `use` that trait.
 
-There’s one more restriction on implementing traits: either the trait, or the
-type you’re writing the `impl` for, must be defined by you. So, we could
-implement the `HasArea` type for `i32`, because `HasArea` is in our code. But
-if we tried to implement `ToString`, a trait provided by Rust, for `i32`, we could
-not, because neither the trait nor the type are in our code.
+There’s one more restriction on implementing traits: either the trait
+or the type you’re implementing it for must be defined by you. Or more
+precisely, one of them must be defined in the same crate as the `impl`
+you're writing. For more on Rust's module and package system, see the
+chapter on [crates and modules][cm].
+
+So, we could implement the `HasArea` type for `i32`, because we defined
+`HasArea` in our code. But if we tried to implement `ToString`, a trait
+provided by Rust, for `i32`, we could not, because neither the trait nor
+the type are defined in our crate.
 
 One last thing about traits: generic functions with a trait bound use
 ‘monomorphization’ (mono: one, morph: form), so they are statically dispatched.
 What’s that mean? Check out the chapter on [trait objects][to] for more details.
 
+[cm]: crates-and-modules.html
 [to]: trait-objects.html
 
 # Multiple trait bounds
@@ -385,16 +413,16 @@ impl ConvertTo<i64> for i32 {
     fn convert(&self) -> i64 { *self as i64 }
 }
 
-// can be called with T == i32
+// Can be called with T == i32.
 fn normal<T: ConvertTo<i64>>(x: &T) -> i64 {
     x.convert()
 }
 
-// can be called with T == i64
-fn inverse<T>() -> T
-        // this is using ConvertTo as if it were "ConvertTo<i64>"
+// Can be called with T == i64.
+fn inverse<T>(x: i32) -> T
+        // This is using ConvertTo as if it were "ConvertTo<i64>".
         where i32: ConvertTo<T> {
-    42.convert()
+    x.convert()
 }
 ```
 
@@ -442,15 +470,15 @@ impl Foo for OverrideDefault {
 
     fn is_invalid(&self) -> bool {
         println!("Called OverrideDefault.is_invalid!");
-        true // overrides the expected value of is_invalid()
+        true // Overrides the expected value of `is_invalid()`.
     }
 }
 
 let default = UseDefault;
-assert!(!default.is_invalid()); // prints "Called UseDefault.is_valid."
+assert!(!default.is_invalid()); // Prints "Called UseDefault.is_valid."
 
 let over = OverrideDefault;
-assert!(over.is_invalid()); // prints "Called OverrideDefault.is_invalid!"
+assert!(over.is_invalid()); // Prints "Called OverrideDefault.is_invalid!"
 ```
 
 # Inheritance
@@ -490,7 +518,7 @@ impl FooBar for Baz {
 If we forget to implement `Foo`, Rust will tell us:
 
 ```text
-error: the trait `main::Foo` is not implemented for the type `main::Baz` [E0277]
+error: the trait bound `main::Baz : main::Foo` is not satisfied [E0277]
 ```
 
 # Deriving

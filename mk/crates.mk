@@ -49,30 +49,41 @@
 # automatically generated for all stage/host/target combinations.
 ################################################################################
 
-TARGET_CRATES := libc std flate arena term \
-                 serialize getopts collections test rand \
-                 log graphviz core rbml alloc \
+TARGET_CRATES := libc std term \
+                 getopts collections test rand \
+                 compiler_builtins core alloc \
                  rustc_unicode rustc_bitflags \
-		 alloc_system
+		 alloc_system alloc_jemalloc \
+		 panic_abort panic_unwind unwind
 RUSTC_CRATES := rustc rustc_typeck rustc_mir rustc_borrowck rustc_resolve rustc_driver \
                 rustc_trans rustc_back rustc_llvm rustc_privacy rustc_lint \
-                rustc_data_structures rustc_front rustc_platform_intrinsics \
-                rustc_plugin rustc_metadata rustc_passes
-HOST_CRATES := syntax syntax_ext $(RUSTC_CRATES) rustdoc fmt_macros
-TOOLS := compiletest rustdoc rustc rustbook error-index-generator
+                rustc_data_structures rustc_platform_intrinsics rustc_errors \
+                rustc_plugin rustc_metadata rustc_passes rustc_save_analysis \
+                rustc_const_eval rustc_const_math rustc_incremental proc_macro
+HOST_CRATES := syntax syntax_ext proc_macro_tokens proc_macro_plugin syntax_pos $(RUSTC_CRATES) \
+		rustdoc fmt_macros flate arena graphviz log serialize
+TOOLS := compiletest rustdoc rustc rustbook error_index_generator
 
 DEPS_core :=
+DEPS_compiler_builtins := core native:compiler-rt
 DEPS_alloc := core libc alloc_system
 DEPS_alloc_system := core libc
+DEPS_alloc_jemalloc := core libc native:jemalloc
 DEPS_collections := core alloc rustc_unicode
 DEPS_libc := core
 DEPS_rand := core
 DEPS_rustc_bitflags := core
 DEPS_rustc_unicode := core
+DEPS_panic_abort := libc alloc
+DEPS_panic_unwind := libc alloc unwind
+DEPS_unwind := libc
 
-DEPS_std := core libc rand alloc collections rustc_unicode \
+RUSTFLAGS_compiler_builtins := -lstatic=compiler-rt
+RUSTFLAGS_panic_abort := -C panic=abort
+
+DEPS_std := core libc rand alloc collections compiler_builtins rustc_unicode \
 	native:backtrace \
-	alloc_system
+	alloc_system panic_abort panic_unwind unwind
 DEPS_arena := std
 DEPS_glob := std
 DEPS_flate := std native:miniz
@@ -81,52 +92,67 @@ DEPS_getopts := std
 DEPS_graphviz := std
 DEPS_log := std
 DEPS_num := std
-DEPS_rbml := std log serialize
 DEPS_serialize := std log
-DEPS_term := std log
-DEPS_test := std getopts serialize rbml term native:rust_test_helpers
+DEPS_term := std
+DEPS_test := std getopts term native:rust_test_helpers
 
-DEPS_syntax := std term serialize log arena libc rustc_bitflags
-DEPS_syntax_ext := syntax fmt_macros
+DEPS_syntax := std term serialize log arena libc rustc_bitflags rustc_unicode rustc_errors syntax_pos rustc_data_structures
+DEPS_syntax_ext := syntax syntax_pos rustc_errors fmt_macros proc_macro
+DEPS_syntax_pos := serialize
+DEPS_proc_macro_tokens := syntax syntax_pos log
+DEPS_proc_macro_plugin := syntax syntax_pos rustc_plugin log proc_macro_tokens
 
-DEPS_rustc := syntax fmt_macros flate arena serialize getopts rbml rustc_front\
-              log graphviz rustc_llvm rustc_back rustc_data_structures
-DEPS_rustc_back := std syntax rustc_llvm rustc_front flate log libc
-DEPS_rustc_borrowck := rustc rustc_front log graphviz syntax
-DEPS_rustc_data_structures := std log serialize
+DEPS_rustc_const_math := std syntax log serialize
+DEPS_rustc_const_eval := rustc_const_math rustc syntax log serialize \
+			     rustc_back graphviz syntax_pos
+
+DEPS_rustc := syntax fmt_macros flate arena serialize getopts \
+              log graphviz rustc_llvm rustc_back rustc_data_structures\
+	      rustc_const_math syntax_pos rustc_errors
+DEPS_rustc_back := std syntax flate log libc
+DEPS_rustc_borrowck := rustc log graphviz syntax syntax_pos rustc_errors rustc_mir
+DEPS_rustc_data_structures := std log serialize libc
 DEPS_rustc_driver := arena flate getopts graphviz libc rustc rustc_back rustc_borrowck \
                      rustc_typeck rustc_mir rustc_resolve log syntax serialize rustc_llvm \
-	             rustc_trans rustc_privacy rustc_lint rustc_front rustc_plugin \
-                     rustc_metadata syntax_ext rustc_passes
-DEPS_rustc_front := std syntax log serialize
-DEPS_rustc_lint := rustc log syntax
+                     rustc_trans rustc_privacy rustc_lint rustc_plugin \
+                     rustc_metadata syntax_ext proc_macro_plugin \
+                     rustc_passes rustc_save_analysis rustc_const_eval \
+                     rustc_incremental syntax_pos rustc_errors proc_macro rustc_data_structures
+DEPS_rustc_errors := log libc serialize syntax_pos
+DEPS_rustc_lint := rustc log syntax syntax_pos rustc_const_eval
 DEPS_rustc_llvm := native:rustllvm libc std rustc_bitflags
-DEPS_rustc_metadata := rustc rustc_front syntax rbml
-DEPS_rustc_passes := syntax rustc core
-DEPS_rustc_mir := rustc rustc_front syntax
-DEPS_rustc_resolve := arena rustc rustc_front log syntax
-DEPS_rustc_platform_intrinsics := rustc rustc_llvm
-DEPS_rustc_plugin := rustc rustc_metadata syntax
-DEPS_rustc_privacy := rustc rustc_front log syntax
-DEPS_rustc_trans := arena flate getopts graphviz libc rustc rustc_back rustc_mir \
-                    log syntax serialize rustc_llvm rustc_front rustc_platform_intrinsics
-DEPS_rustc_typeck := rustc syntax rustc_front rustc_platform_intrinsics
+DEPS_proc_macro := std syntax
+DEPS_rustc_metadata := rustc syntax syntax_pos rustc_errors rustc_const_math \
+			proc_macro syntax_ext
+DEPS_rustc_passes := syntax syntax_pos rustc core rustc_const_eval rustc_errors
+DEPS_rustc_mir := rustc syntax syntax_pos rustc_const_math rustc_const_eval rustc_bitflags
+DEPS_rustc_resolve := arena rustc log syntax syntax_pos rustc_errors
+DEPS_rustc_platform_intrinsics := std
+DEPS_rustc_plugin := rustc rustc_metadata syntax syntax_pos rustc_errors
+DEPS_rustc_privacy := rustc log syntax syntax_pos
+DEPS_rustc_trans := arena flate getopts graphviz libc rustc rustc_back \
+                    log syntax serialize rustc_llvm rustc_platform_intrinsics \
+                    rustc_const_math rustc_const_eval rustc_incremental rustc_errors syntax_pos
+DEPS_rustc_incremental := rustc syntax_pos serialize rustc_data_structures
+DEPS_rustc_save_analysis := rustc log syntax syntax_pos serialize
+DEPS_rustc_typeck := rustc syntax syntax_pos rustc_platform_intrinsics rustc_const_math \
+                     rustc_const_eval rustc_errors rustc_data_structures
 
-DEPS_rustdoc := rustc rustc_driver native:hoedown serialize getopts \
-                test rustc_lint rustc_front
+DEPS_rustdoc := rustc rustc_driver native:hoedown serialize getopts test \
+                rustc_lint rustc_const_eval syntax_pos rustc_data_structures
 
-
-TOOL_DEPS_compiletest := test getopts
+TOOL_DEPS_compiletest := test getopts log serialize
 TOOL_DEPS_rustdoc := rustdoc
 TOOL_DEPS_rustc := rustc_driver
 TOOL_DEPS_rustbook := std rustdoc
-TOOL_DEPS_error-index-generator := rustdoc syntax serialize
-TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
+TOOL_DEPS_error_index_generator := rustdoc syntax serialize
+TOOL_SOURCE_compiletest := $(S)src/tools/compiletest/src/main.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
-TOOL_SOURCE_rustbook := $(S)src/rustbook/main.rs
-TOOL_SOURCE_error-index-generator := $(S)src/error-index-generator/main.rs
+TOOL_SOURCE_rustbook := $(S)src/tools/rustbook/main.rs
+TOOL_SOURCE_error_index_generator := $(S)src/tools/error_index_generator/main.rs
 
+ONLY_RLIB_compiler_builtins := 1
 ONLY_RLIB_core := 1
 ONLY_RLIB_libc := 1
 ONLY_RLIB_alloc := 1
@@ -135,17 +161,18 @@ ONLY_RLIB_collections := 1
 ONLY_RLIB_rustc_unicode := 1
 ONLY_RLIB_rustc_bitflags := 1
 ONLY_RLIB_alloc_system := 1
+ONLY_RLIB_alloc_jemalloc := 1
+ONLY_RLIB_panic_unwind := 1
+ONLY_RLIB_panic_abort := 1
+ONLY_RLIB_unwind := 1
+
+TARGET_SPECIFIC_alloc_jemalloc := 1
 
 # Documented-by-default crates
 DOC_CRATES := std alloc collections core libc rustc_unicode
 
 ifeq ($(CFG_DISABLE_JEMALLOC),)
-TARGET_CRATES += alloc_jemalloc
-DEPS_std += alloc_jemalloc
-DEPS_alloc_jemalloc := core libc native:jemalloc
-ONLY_RLIB_alloc_jemalloc := 1
-else
-RUSTFLAGS_rustc_back := --cfg disable_jemalloc
+RUSTFLAGS_rustc_back := --cfg 'feature="jemalloc"'
 endif
 
 ################################################################################
@@ -161,11 +188,31 @@ CRATES := $(TARGET_CRATES) $(HOST_CRATES)
 define RUST_CRATE
 CRATEFILE_$(1) := $$(SREL)src/lib$(1)/lib.rs
 RSINPUTS_$(1) := $$(call rwildcard,$(S)src/lib$(1)/,*.rs)
-RUST_DEPS_$(1) := $$(filter-out native:%,$$(DEPS_$(1)))
 NATIVE_DEPS_$(1) := $$(patsubst native:%,%,$$(filter native:%,$$(DEPS_$(1))))
 endef
 
 $(foreach crate,$(CRATES),$(eval $(call RUST_CRATE,$(crate))))
+
+# $(1) - crate
+# $(2) - target
+define RUST_CRATE_DEPS
+RUST_DEPS_$(1)_T_$(2) := $$(filter-out native:%,$$(DEPS_$(1)))
+endef
+
+$(foreach target,$(CFG_TARGET),\
+ $(foreach crate,$(CRATES),$(eval $(call RUST_CRATE_DEPS,$(crate),$(target)))))
+
+# $(1) - target
+# $(2) - crate
+define DEFINE_TARGET_CRATES
+ifndef TARGET_SPECIFIC_$(2)
+TARGET_CRATES_$(1) += $(2)
+endif
+endef
+
+$(foreach target,$(CFG_TARGET),\
+ $(foreach crate,$(TARGET_CRATES),\
+  $(eval $(call DEFINE_TARGET_CRATES,$(target),$(crate)))))
 
 # Similar to the macro above for crates, this macro is for tools
 #

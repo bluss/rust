@@ -59,13 +59,13 @@ handling is reducing the amount of explicit case analysis the programmer has to
 do while keeping code composable.
 
 Keeping code composable is important, because without that requirement, we
-could [`panic`](../std/macro.panic!.html) whenever we
+could [`panic`](../std/macro.panic.html) whenever we
 come across something unexpected. (`panic` causes the current task to unwind,
 and in most cases, the entire program aborts.) Here's an example:
 
 ```rust,should_panic
 // Guess a number between 1 and 10.
-// If it matches the number we had in mind, return true. Else, return false.
+// If it matches the number we had in mind, return `true`. Else, return `false`.
 fn guess(n: i32) -> bool {
     if n < 1 || n > 10 {
         panic!("Invalid number: {}", n);
@@ -81,7 +81,7 @@ fn main() {
 If you try running this code, the program will crash with a message like this:
 
 ```text
-thread '<main>' panicked at 'Invalid number: 11', src/bin/panic-simple.rs:5
+thread 'main' panicked at 'Invalid number: 11', src/bin/panic-simple.rs:5
 ```
 
 Here's another example that is slightly less contrived. A program that accepts
@@ -166,7 +166,7 @@ story. The other half is *using* the `find` function we've written. Let's try
 to use it to find the extension in a file name.
 
 ```rust
-# fn find(_: &str, _: char) -> Option<usize> { None }
+# fn find(haystack: &str, needle: char) -> Option<usize> { haystack.find(needle) }
 fn main() {
     let file_name = "foobar.rs";
     match find(file_name, '.') {
@@ -223,9 +223,9 @@ Getting the extension of a file name is a pretty common operation, so it makes
 sense to put it into a function:
 
 ```rust
-# fn find(_: &str, _: char) -> Option<usize> { None }
+# fn find(haystack: &str, needle: char) -> Option<usize> { haystack.find(needle) }
 // Returns the extension of the given file name, where the extension is defined
-// as all characters proceeding the first `.`.
+// as all characters following the first `.`.
 // If `file_name` has no `.`, then `None` is returned.
 fn extension_explicit(file_name: &str) -> Option<&str> {
     match find(file_name, '.') {
@@ -265,14 +265,16 @@ fn map<F, T, A>(option: Option<T>, f: F) -> Option<A> where F: FnOnce(T) -> A {
 ```
 
 Indeed, `map` is [defined as a method][2] on `Option<T>` in the standard library.
+As a method, it has a slightly different signature: methods take `self`, `&self`,
+or `&mut self` as their first argument.
 
 Armed with our new combinator, we can rewrite our `extension_explicit` method
 to get rid of the case analysis:
 
 ```rust
-# fn find(_: &str, _: char) -> Option<usize> { None }
+# fn find(haystack: &str, needle: char) -> Option<usize> { haystack.find(needle) }
 // Returns the extension of the given file name, where the extension is defined
-// as all characters proceeding the first `.`.
+// as all characters following the first `.`.
 // If `file_name` has no `.`, then `None` is returned.
 fn extension(file_name: &str) -> Option<&str> {
     find(file_name, '.').map(|i| &file_name[i+1..])
@@ -293,6 +295,9 @@ fn unwrap_or<T>(option: Option<T>, default: T) -> T {
     }
 }
 ```
+
+Like with `map` above, the standard library implementation is a method instead
+of a free function.
 
 The trick here is that the default value must have the same type as the value
 that might be inside the `Option<T>`. Using it is dead simple in our case:
@@ -345,17 +350,34 @@ fn file_path_ext_explicit(file_path: &str) -> Option<&str> {
 }
 
 fn file_name(file_path: &str) -> Option<&str> {
-  // implementation elided
+  // Implementation elided.
   unimplemented!()
 }
 ```
 
 You might think that we could use the `map` combinator to reduce the case
-analysis, but its type doesn't quite fit. Namely, `map` takes a function that
-does something only with the inner value. The result of that function is then
-*always* [rewrapped with `Some`](#code-option-map). Instead, we need something
-like `map`, but which allows the caller to return another `Option`. Its generic
-implementation is even simpler than `map`:
+analysis, but its type doesn't quite fit...
+
+```rust,ignore
+fn file_path_ext(file_path: &str) -> Option<&str> {
+    file_name(file_path).map(|x| extension(x)) // This causes a compilation error.
+}
+```
+
+The `map` function here wraps the value returned by the `extension` function
+inside an `Option<_>` and since the `extension` function itself returns an
+`Option<&str>` the expression `file_name(file_path).map(|x| extension(x))`
+actually returns an `Option<Option<&str>>`.
+
+But since `file_path_ext` just returns `Option<&str>` (and not
+`Option<Option<&str>>`) we get a compilation error.
+
+The result of the function taken by map as input is *always* [rewrapped with
+`Some`](#code-option-map). Instead, we need something like `map`, but which
+allows the caller to return a `Option<_>` directly without wrapping it in
+another `Option<_>`.
+
+Its generic implementation is even simpler than `map`:
 
 ```rust
 fn and_then<F, T, A>(option: Option<T>, f: F) -> Option<A>
@@ -376,6 +398,10 @@ fn file_path_ext(file_path: &str) -> Option<&str> {
     file_name(file_path).and_then(extension)
 }
 ```
+
+Side note: Since `and_then` essentially works like `map` but returns an
+`Option<_>` instead of an `Option<Option<_>>` it is known as `flatmap` in some
+other languages.
 
 The `Option` type has many other combinators [defined in the standard
 library][5]. It is a good idea to skim this list and familiarize
@@ -472,7 +498,7 @@ At this point, you should be skeptical of calling `unwrap`. For example, if
 the string doesn't parse as a number, you'll get a panic:
 
 ```text
-thread '<main>' panicked at 'called `Result::unwrap()` on an `Err` value: ParseIntError { kind: InvalidDigit }', /home/rustbuild/src/rust-buildbot/slave/beta-dist-rustc-linux/build/src/libcore/result.rs:729
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: ParseIntError { kind: InvalidDigit }', /home/rustbuild/src/rust-buildbot/slave/beta-dist-rustc-linux/build/src/libcore/result.rs:729
 ```
 
 This is rather unsightly, and if this happened inside a library you're
@@ -918,7 +944,7 @@ macro_rules! try {
 }
 ```
 
-(The [real definition](../std/macro.try!.html) is a bit more
+(The [real definition](../std/macro.try.html) is a bit more
 sophisticated. We will address that later.)
 
 Using the `try!` macro makes it very easy to simplify our last example. Since
@@ -1209,11 +1235,11 @@ use std::fs;
 use std::io;
 use std::num;
 
-// We have to jump through some hoops to actually get error values.
+// We have to jump through some hoops to actually get error values:
 let io_err: io::Error = io::Error::last_os_error();
 let parse_err: num::ParseIntError = "not a number".parse::<i32>().unwrap_err();
 
-// OK, here are the conversions.
+// OK, here are the conversions:
 let err1: Box<Error> = From::from(io_err);
 let err2: Box<Error> = From::from(parse_err);
 ```
@@ -1245,7 +1271,7 @@ macro_rules! try {
 ```
 
 This is not its real definition. Its real definition is
-[in the standard library](../std/macro.try!.html):
+[in the standard library](../std/macro.try.html):
 
 <span id="code-try-def"></span>
 
@@ -1512,7 +1538,7 @@ and [`rustc-serialize`](https://crates.io/crates/rustc-serialize) crates.
 
 We're not going to spend a lot of time on setting up a project with
 Cargo because it is already covered well in [the Cargo
-section](../book/hello-cargo.html) and [Cargo's documentation][14].
+section](getting-started.html#hello-cargo) and [Cargo's documentation][14].
 
 To get started from scratch, run `cargo new --bin city-pop` and make sure your
 `Cargo.toml` looks something like this:
@@ -1547,8 +1573,9 @@ detail on Getopts, but there is [some good documentation][15]
 describing it. The short story is that Getopts generates an argument
 parser and a help message from a vector of options (The fact that it
 is a vector is hidden behind a struct and a set of methods). Once the
-parsing is done, we can decode the program arguments into a Rust
-struct. From there, we can get information about the flags, for
+parsing is done, the parser returns a struct that records matches
+for defined options, and remaining "free" arguments.
+From there, we can get information about the flags, for
 instance, whether they were passed in, and what arguments they
 had. Here's our program with the appropriate `extern crate`
 statements, and the basic argument setup for Getopts:
@@ -1566,7 +1593,7 @@ fn print_usage(program: &str, opts: Options) {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let program = args[0].clone();
+    let program = &args[0];
 
     let mut opts = Options::new();
     opts.optflag("h", "help", "Show this usage message.");
@@ -1579,10 +1606,10 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
-    let data_path = args[1].clone();
-    let city = args[2].clone();
+    let data_path = &matches.free[0];
+    let city: &str = &matches.free[1];
 
-	// Do stuff with information
+    // Do stuff with information.
 }
 ```
 
@@ -1614,7 +1641,6 @@ sure to add `extern crate csv;` to the top of your file.)
 
 ```rust,ignore
 use std::fs::File;
-use std::path::Path;
 
 // This struct represents the data in each row of the CSV file.
 // Type based decoding absolves us of a lot of the nitty gritty error
@@ -1640,7 +1666,7 @@ fn print_usage(program: &str, opts: Options) {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let program = args[0].clone();
+    let program = &args[0];
 
     let mut opts = Options::new();
     opts.optflag("h", "help", "Show this usage message.");
@@ -1652,25 +1678,24 @@ fn main() {
 
     if matches.opt_present("h") {
         print_usage(&program, opts);
-		return;
-	}
+        return;
+    }
 
-	let data_file = args[1].clone();
-	let data_path = Path::new(&data_file);
-	let city = args[2].clone();
+    let data_path = &matches.free[0];
+    let city: &str = &matches.free[1];
 
-	let file = File::open(data_path).unwrap();
-	let mut rdr = csv::Reader::from_reader(file);
+    let file = File::open(data_path).unwrap();
+    let mut rdr = csv::Reader::from_reader(file);
 
-	for row in rdr.decode::<Row>() {
-		let row = row.unwrap();
+    for row in rdr.decode::<Row>() {
+        let row = row.unwrap();
 
-		if row.city == city {
-			println!("{}, {}: {:?}",
-				row.city, row.country,
-				row.population.expect("population count"));
-		}
-	}
+        if row.city == city {
+            println!("{}, {}: {:?}",
+                row.city, row.country,
+                row.population.expect("population count"));
+        }
+    }
 }
 ```
 
@@ -1719,8 +1744,10 @@ Note that we opt to handle the possibility of a missing population count by
 simply ignoring that row.
 
 ```rust,ignore
+use std::path::Path;
+
 struct Row {
-    // unchanged
+    // This struct remains unchanged.
 }
 
 struct PopulationCount {
@@ -1742,7 +1769,7 @@ fn search<P: AsRef<Path>>(file_path: P, city: &str) -> Vec<PopulationCount> {
     for row in rdr.decode::<Row>() {
         let row = row.unwrap();
         match row.population {
-            None => { } // skip it
+            None => { } // Skip it.
             Some(count) => if row.city == city {
                 found.push(PopulationCount {
                     city: row.city,
@@ -1756,27 +1783,28 @@ fn search<P: AsRef<Path>>(file_path: P, city: &str) -> Vec<PopulationCount> {
 }
 
 fn main() {
-	let args: Vec<String> = env::args().collect();
-	let program = args[0].clone();
+    let args: Vec<String> = env::args().collect();
+    let program = &args[0];
 
-	let mut opts = Options::new();
-	opts.optflag("h", "help", "Show this usage message.");
+    let mut opts = Options::new();
+    opts.optflag("h", "help", "Show this usage message.");
 
-	let matches = match opts.parse(&args[1..]) {
-		Ok(m)  => { m }
-		Err(e) => { panic!(e.to_string()) }
-	};
-	if matches.opt_present("h") {
-		print_usage(&program, opts);
-		return;
-	}
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m)  => { m }
+        Err(e) => { panic!(e.to_string()) }
+    };
 
-	let data_file = args[1].clone();
-	let data_path = Path::new(&data_file);
-	let city = args[2].clone();
-	for pop in search(&data_path, &city) {
-		println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
-	}
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        return;
+    }
+
+    let data_path = &matches.free[0];
+    let city: &str = &matches.free[1];
+
+    for pop in search(data_path, city) {
+        println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+    }
 }
 
 ```
@@ -1797,18 +1825,18 @@ Let's try it:
 ```rust,ignore
 use std::error::Error;
 
-// The rest of the code before this is unchanged
+// The rest of the code before this is unchanged.
 
 fn search<P: AsRef<Path>>
          (file_path: P, city: &str)
-         -> Result<Vec<PopulationCount>, Box<Error+Send+Sync>> {
+         -> Result<Vec<PopulationCount>, Box<Error>> {
     let mut found = vec![];
     let file = try!(File::open(file_path));
     let mut rdr = csv::Reader::from_reader(file);
     for row in rdr.decode::<Row>() {
         let row = try!(row);
         match row.population {
-            None => { } // skip it
+            None => { } // Skip it.
             Some(count) => if row.city == city {
                 found.push(PopulationCount {
                     city: row.city,
@@ -1830,20 +1858,17 @@ Instead of `x.unwrap()`, we now have `try!(x)`. Since our function returns a
 `Result<T, E>`, the `try!` macro will return early from the function if an
 error occurs.
 
-There is one big gotcha in this code: we used `Box<Error + Send + Sync>`
-instead of `Box<Error>`. We did this so we could convert a plain string to an
-error type. We need these extra bounds so that we can use the
-[corresponding `From`
-impls](../std/convert/trait.From.html):
+At the end of `search` we also convert a plain string to an error type 
+by using the [corresponding `From` impls](../std/convert/trait.From.html):
 
 ```rust,ignore
 // We are making use of this impl in the code above, since we call `From::from`
 // on a `&'static str`.
-impl<'a, 'b> From<&'b str> for Box<Error + Send + Sync + 'a>
+impl<'a> From<&'a str> for Box<Error>
 
 // But this is also useful when you need to allocate a new string for an
 // error message, usually with `format!`.
-impl From<String> for Box<Error + Send + Sync>
+impl From<String> for Box<Error>
 ```
 
 Since `search` now returns a `Result<T, E>`, `main` should use case analysis
@@ -1851,14 +1876,14 @@ when calling `search`:
 
 ```rust,ignore
 ...
-match search(&data_file, &city) {
-    Ok(pops) => {
-        for pop in pops {
-            println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+    match search(data_path, city) {
+        Ok(pops) => {
+            for pop in pops {
+                println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+            }
         }
+        Err(err) => println!("{}", err)
     }
-    Err(err) => println!("{}", err)
-}
 ...
 ```
 
@@ -1886,46 +1911,40 @@ First, here's the new usage:
 
 ```rust,ignore
 fn print_usage(program: &str, opts: Options) {
-	println!("{}", opts.usage(&format!("Usage: {} [options] <city>", program)));
+    println!("{}", opts.usage(&format!("Usage: {} [options] <city>", program)));
 }
 ```
-The next part is going to be only a little harder:
+Of course we need to adapt the argument handling code:
 
 ```rust,ignore
 ...
-let mut opts = Options::new();
-opts.optopt("f", "file", "Choose an input file, instead of using STDIN.", "NAME");
-opts.optflag("h", "help", "Show this usage message.");
-...
-let file = matches.opt_str("f");
-let data_file = file.as_ref().map(Path::new);
+    let mut opts = Options::new();
+    opts.optopt("f", "file", "Choose an input file, instead of using STDIN.", "NAME");
+    opts.optflag("h", "help", "Show this usage message.");
+    ...
+    let data_path = matches.opt_str("f");
 
-let city = if !matches.free.is_empty() {
-	matches.free[0].clone()
-} else {
-	print_usage(&program, opts);
-	return;
-};
+    let city = if !matches.free.is_empty() {
+        &matches.free[0]
+    } else {
+        print_usage(&program, opts);
+        return;
+    };
 
-match search(&data_file, &city) {
-    Ok(pops) => {
-        for pop in pops {
-            println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+    match search(&data_path, city) {
+        Ok(pops) => {
+            for pop in pops {
+                println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+            }
         }
+        Err(err) => println!("{}", err)
     }
-    Err(err) => println!("{}", err)
-}
 ...
 ```
 
-In this piece of code, we take `file` (which has the type
-`Option<String>`), and convert it to a type that `search` can use, in
-this case, `&Option<AsRef<Path>>`. To do this, we take a reference of
-file, and map `Path::new` onto it. In this case, `as_ref()` converts
-the `Option<String>` into an `Option<&str>`, and from there, we can
-execute `Path::new` to the content of the optional, and return the
-optional of the new value. Once we have that, it is a simple matter of
-getting the `city` argument and executing `search`.
+We've made the user experience a bit nicer by showing the usage message,
+instead of a panic from an out-of-bounds index, when `city`, the
+remaining free argument, is not present.
 
 Modifying `search` is slightly trickier. The `csv` crate can build a
 parser out of
@@ -1938,11 +1957,11 @@ that it is generic on some type parameter `R` that satisfies
 ```rust,ignore
 use std::io;
 
-// The rest of the code before this is unchanged
+// The rest of the code before this is unchanged.
 
 fn search<P: AsRef<Path>>
          (file_path: &Option<P>, city: &str)
-         -> Result<Vec<PopulationCount>, Box<Error+Send+Sync>> {
+         -> Result<Vec<PopulationCount>, Box<Error>> {
     let mut found = vec![];
     let input: Box<io::Read> = match *file_path {
         None => Box::new(io::stdin()),
@@ -1975,6 +1994,8 @@ enum CliError {
 And now for impls on `Display` and `Error`:
 
 ```rust,ignore
+use std::fmt;
+
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -1992,6 +2013,16 @@ impl Error for CliError {
             CliError::Io(ref err) => err.description(),
             CliError::Csv(ref err) => err.description(),
             CliError::NotFound => "not found",
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            CliError::Io(ref err) => Some(err),
+            CliError::Csv(ref err) => Some(err),
+            // Our custom error doesn't have an underlying cause,
+            // but we could modify it so that it does.
+            CliError::NotFound => None,
         }
     }
 }
@@ -2039,7 +2070,7 @@ fn search<P: AsRef<Path>>
     for row in rdr.decode::<Row>() {
         let row = try!(row);
         match row.population {
-            None => { } // skip it
+            None => { } // Skip it.
             Some(count) => if row.city == city {
                 found.push(PopulationCount {
                     city: row.city,
@@ -2087,10 +2118,10 @@ string and add a flag to the Option variable. Once we've done that, Getopts does
 
 ```rust,ignore
 ...
-let mut opts = Options::new();
-opts.optopt("f", "file", "Choose an input file, instead of using STDIN.", "NAME");
-opts.optflag("h", "help", "Show this usage message.");
-opts.optflag("q", "quiet", "Silences errors and warnings.");
+    let mut opts = Options::new();
+    opts.optopt("f", "file", "Choose an input file, instead of using STDIN.", "NAME");
+    opts.optflag("h", "help", "Show this usage message.");
+    opts.optflag("q", "quiet", "Silences errors and warnings.");
 ...
 ```
 
@@ -2098,13 +2129,16 @@ Now we only need to implement our “quiet” functionality. This requires us to
 tweak the case analysis in `main`:
 
 ```rust,ignore
-match search(&args.arg_data_path, &args.arg_city) {
-    Err(CliError::NotFound) if args.flag_quiet => process::exit(1),
-    Err(err) => panic!("{}", err),
-    Ok(pops) => for pop in pops {
-        println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+use std::process;
+...
+    match search(&data_path, city) {
+        Err(CliError::NotFound) if matches.opt_present("q") => process::exit(1),
+        Err(err) => panic!("{}", err),
+        Ok(pops) => for pop in pops {
+            println!("{}, {}: {:?}", pop.city, pop.country, pop.count);
+        }
     }
-}
+...
 ```
 
 Certainly, we don't want to be quiet if there was an IO error or if the data
@@ -2138,14 +2172,13 @@ heuristics!
   `unwrap`. Be warned: if it winds up in someone else's hands, don't be
   surprised if they are agitated by poor error messages!
 * If you're writing a quick 'n' dirty program and feel ashamed about panicking
-  anyway, then use either a `String` or a `Box<Error + Send + Sync>` for your
-  error type (the `Box<Error + Send + Sync>` type is because of the
-  [available `From` impls](../std/convert/trait.From.html)).
+  anyway, then use either a `String` or a `Box<Error>` for your
+  error type.
 * Otherwise, in a program, define your own error types with appropriate
   [`From`](../std/convert/trait.From.html)
   and
   [`Error`](../std/error/trait.Error.html)
-  impls to make the [`try!`](../std/macro.try!.html)
+  impls to make the [`try!`](../std/macro.try.html)
   macro more ergonomic.
 * If you're writing a library and your code can produce errors, define your own
   error type and implement the
@@ -2168,7 +2201,7 @@ heuristics!
 [3]: ../std/option/enum.Option.html#method.unwrap_or
 [4]: ../std/option/enum.Option.html#method.unwrap_or_else
 [5]: ../std/option/enum.Option.html
-[6]: ../std/result/
+[6]: ../std/result/index.html
 [7]: ../std/result/enum.Result.html#method.unwrap
 [8]: ../std/fmt/trait.Debug.html
 [9]: ../std/primitive.str.html#method.parse

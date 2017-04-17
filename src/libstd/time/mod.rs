@@ -9,13 +9,24 @@
 // except according to those terms.
 
 //! Temporal quantification.
+//!
+//! Example:
+//!
+//! ```
+//! use std::time::Duration;
+//!
+//! let five_seconds = Duration::new(5, 0);
+//! // both declarations are equivalent
+//! assert_eq!(Duration::new(5, 0), Duration::from_secs(5));
+//! ```
 
 #![stable(feature = "time", since = "1.3.0")]
 
 use error::Error;
 use fmt;
-use ops::{Add, Sub};
+use ops::{Add, Sub, AddAssign, SubAssign};
 use sys::time;
+use sys_common::FromInner;
 
 #[stable(feature = "time", since = "1.3.0")]
 pub use self::duration::Duration;
@@ -39,8 +50,24 @@ mod duration;
 /// no method to get "the number of seconds" from an instant. Instead, it only
 /// allows measuring the duration between two instants (or comparing two
 /// instants).
+///
+/// Example:
+///
+/// ```no_run
+/// use std::time::{Duration, Instant};
+/// use std::thread::sleep;
+///
+/// fn main() {
+///    let now = Instant::now();
+///
+///    // we sleep for 2 seconds
+///    sleep(Duration::new(2, 0));
+///    // it prints '2'
+///    println!("{}", now.elapsed().as_secs());
+/// }
+/// ```
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 pub struct Instant(time::Instant);
 
 /// A measurement of the system clock, useful for talking to
@@ -49,7 +76,7 @@ pub struct Instant(time::Instant);
 /// Distinct from the `Instant` type, this time measurement **is not
 /// monotonic**. This means that you can save a file to the file system, then
 /// save another file to the file system, **and the second file has a
-/// `SystemTime` measurement earlier than the second**. In other words, an
+/// `SystemTime` measurement earlier than the first**. In other words, an
 /// operation that happens after another operation in real time may have an
 /// earlier `SystemTime`!
 ///
@@ -62,19 +89,43 @@ pub struct Instant(time::Instant);
 /// information about a `SystemTime`. By calculating the duration from this
 /// fixed point in time, a `SystemTime` can be converted to a human-readable time,
 /// or perhaps some other string representation.
+///
+/// Example:
+///
+/// ```no_run
+/// use std::time::{Duration, SystemTime};
+/// use std::thread::sleep;
+///
+/// fn main() {
+///    let now = SystemTime::now();
+///
+///    // we sleep for 2 seconds
+///    sleep(Duration::new(2, 0));
+///    match now.elapsed() {
+///        Ok(elapsed) => {
+///            // it prints '2'
+///            println!("{}", elapsed.as_secs());
+///        }
+///        Err(e) => {
+///            // an error occured!
+///            println!("Error: {:?}", e);
+///        }
+///    }
+/// }
+/// ```
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 pub struct SystemTime(time::SystemTime);
 
-/// An error returned from the `duration_from_earlier` method on `SystemTime`,
-/// used to learn about why how far in the opposite direction a timestamp lies.
+/// An error returned from the `duration_since` method on `SystemTime`,
+/// used to learn how far in the opposite direction a system time lies.
 #[derive(Clone, Debug)]
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 pub struct SystemTimeError(Duration);
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
 impl Instant {
     /// Returns an instant corresponding to "now".
+    #[stable(feature = "time2", since = "1.8.0")]
     pub fn now() -> Instant {
         Instant(time::Instant::now())
     }
@@ -87,7 +138,8 @@ impl Instant {
     /// only be possible if `earlier` was created after `self`. Because
     /// `Instant` is monotonic, the only time that this should happen should be
     /// a bug.
-    pub fn duration_from_earlier(&self, earlier: Instant) -> Duration {
+    #[stable(feature = "time2", since = "1.8.0")]
+    pub fn duration_since(&self, earlier: Instant) -> Duration {
         self.0.sub_instant(&earlier.0)
     }
 
@@ -98,12 +150,25 @@ impl Instant {
     /// This function may panic if the current time is earlier than this
     /// instant, which is something that can happen if an `Instant` is
     /// produced synthetically.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::thread::sleep;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// let instant = Instant::now();
+    /// let three_secs = Duration::from_secs(3);
+    /// sleep(three_secs);
+    /// assert!(instant.elapsed() >= three_secs);
+    /// ```
+    #[stable(feature = "time2", since = "1.8.0")]
     pub fn elapsed(&self) -> Duration {
-        Instant::now().duration_from_earlier(*self)
+        Instant::now() - *self
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 impl Add<Duration> for Instant {
     type Output = Instant;
 
@@ -112,7 +177,14 @@ impl Add<Duration> for Instant {
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time_augmented_assignment", since = "1.9.0")]
+impl AddAssign<Duration> for Instant {
+    fn add_assign(&mut self, other: Duration) {
+        *self = *self + other;
+    }
+}
+
+#[stable(feature = "time2", since = "1.8.0")]
 impl Sub<Duration> for Instant {
     type Output = Instant;
 
@@ -121,16 +193,32 @@ impl Sub<Duration> for Instant {
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time_augmented_assignment", since = "1.9.0")]
+impl SubAssign<Duration> for Instant {
+    fn sub_assign(&mut self, other: Duration) {
+        *self = *self - other;
+    }
+}
+
+#[stable(feature = "time2", since = "1.8.0")]
+impl Sub<Instant> for Instant {
+    type Output = Duration;
+
+    fn sub(self, other: Instant) -> Duration {
+        self.duration_since(other)
+    }
+}
+
+#[stable(feature = "time2", since = "1.8.0")]
 impl fmt::Debug for Instant {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
 impl SystemTime {
     /// Returns the system time corresponding to "now".
+    #[stable(feature = "time2", since = "1.8.0")]
     pub fn now() -> SystemTime {
         SystemTime(time::SystemTime::now())
     }
@@ -146,8 +234,9 @@ impl SystemTime {
     ///
     /// Returns an `Err` if `earlier` is later than `self`, and the error
     /// contains how far from `self` the time is.
-    pub fn duration_from_earlier(&self, earlier: SystemTime)
-                                 -> Result<Duration, SystemTimeError> {
+    #[stable(feature = "time2", since = "1.8.0")]
+    pub fn duration_since(&self, earlier: SystemTime)
+                          -> Result<Duration, SystemTimeError> {
         self.0.sub_time(&earlier.0).map_err(SystemTimeError)
     }
 
@@ -161,12 +250,13 @@ impl SystemTime {
     ///
     /// Returns an `Err` if `self` is later than the current system time, and
     /// the error contains how far from the current system time `self` is.
+    #[stable(feature = "time2", since = "1.8.0")]
     pub fn elapsed(&self) -> Result<Duration, SystemTimeError> {
-        SystemTime::now().duration_from_earlier(*self)
+        SystemTime::now().duration_since(*self)
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 impl Add<Duration> for SystemTime {
     type Output = SystemTime;
 
@@ -175,7 +265,14 @@ impl Add<Duration> for SystemTime {
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time_augmented_assignment", since = "1.9.0")]
+impl AddAssign<Duration> for SystemTime {
+    fn add_assign(&mut self, other: Duration) {
+        *self = *self + other;
+    }
+}
+
+#[stable(feature = "time2", since = "1.8.0")]
 impl Sub<Duration> for SystemTime {
     type Output = SystemTime;
 
@@ -184,7 +281,14 @@ impl Sub<Duration> for SystemTime {
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time_augmented_assignment", since = "1.9.0")]
+impl SubAssign<Duration> for SystemTime {
+    fn sub_assign(&mut self, other: Duration) {
+        *self = *self - other;
+    }
+}
+
+#[stable(feature = "time2", since = "1.8.0")]
 impl fmt::Debug for SystemTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt(f)
@@ -195,35 +299,41 @@ impl fmt::Debug for SystemTime {
 /// learn about where in time a `SystemTime` lies.
 ///
 /// This constant is defined to be "1970-01-01 00:00:00 UTC" on all systems with
-/// respect to the system clock. Using `duration_from_earlier` on an existing
+/// respect to the system clock. Using `duration_since` on an existing
 /// `SystemTime` instance can tell how far away from this point in time a
 /// measurement lies, and using `UNIX_EPOCH + duration` can be used to create a
 /// `SystemTime` instance to represent another fixed point in time.
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 pub const UNIX_EPOCH: SystemTime = SystemTime(time::UNIX_EPOCH);
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
 impl SystemTimeError {
     /// Returns the positive duration which represents how far forward the
     /// second system time was from the first.
     ///
-    /// A `SystemTimeError` is returned from the `duration_from_earlier`
+    /// A `SystemTimeError` is returned from the `duration_since`
     /// operation whenever the second system time represents a point later
     /// in time than the `self` of the method call.
+    #[stable(feature = "time2", since = "1.8.0")]
     pub fn duration(&self) -> Duration {
         self.0
     }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 impl Error for SystemTimeError {
     fn description(&self) -> &str { "other time was not earlier than self" }
 }
 
-#[unstable(feature = "time2", reason = "recently added", issue = "29866")]
+#[stable(feature = "time2", since = "1.8.0")]
 impl fmt::Display for SystemTimeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "second time provided was later than self")
+    }
+}
+
+impl FromInner<time::SystemTime> for SystemTime {
+    fn from_inner(time: time::SystemTime) -> SystemTime {
+        SystemTime(time)
     }
 }
 
@@ -258,7 +368,7 @@ mod tests {
     fn instant_math() {
         let a = Instant::now();
         let b = Instant::now();
-        let dur = b.duration_from_earlier(a);
+        let dur = b.duration_since(a);
         assert_almost_eq!(b - dur, a);
         assert_almost_eq!(a + dur, b);
 
@@ -270,14 +380,14 @@ mod tests {
     #[should_panic]
     fn instant_duration_panic() {
         let a = Instant::now();
-        (a - Duration::new(1, 0)).duration_from_earlier(a);
+        (a - Duration::new(1, 0)).duration_since(a);
     }
 
     #[test]
     fn system_time_math() {
         let a = SystemTime::now();
         let b = SystemTime::now();
-        match b.duration_from_earlier(a) {
+        match b.duration_since(a) {
             Ok(dur) if dur == Duration::new(0, 0) => {
                 assert_almost_eq!(a, b);
             }
@@ -295,8 +405,8 @@ mod tests {
         }
 
         let second = Duration::new(1, 0);
-        assert_almost_eq!(a.duration_from_earlier(a - second).unwrap(), second);
-        assert_almost_eq!(a.duration_from_earlier(a + second).unwrap_err()
+        assert_almost_eq!(a.duration_since(a - second).unwrap(), second);
+        assert_almost_eq!(a.duration_since(a + second).unwrap_err()
                            .duration(), second);
 
         assert_almost_eq!(a - second + second, a);
@@ -320,8 +430,8 @@ mod tests {
     #[test]
     fn since_epoch() {
         let ts = SystemTime::now();
-        let a = ts.duration_from_earlier(UNIX_EPOCH).unwrap();
-        let b = ts.duration_from_earlier(UNIX_EPOCH - Duration::new(1, 0)).unwrap();
+        let a = ts.duration_since(UNIX_EPOCH).unwrap();
+        let b = ts.duration_since(UNIX_EPOCH - Duration::new(1, 0)).unwrap();
         assert!(b > a);
         assert_eq!(b - a, Duration::new(1, 0));
 

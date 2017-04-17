@@ -31,9 +31,10 @@ use std::ascii::AsciiExt;
 use std::cell::RefCell;
 use std::default::Default;
 use std::ffi::CString;
-use std::fmt;
+use std::fmt::{self, Write};
 use std::slice;
 use std::str;
+use syntax::feature_gate::UnstableFeatures;
 
 use html::render::derive_id;
 use html::toc::TocBuilder;
@@ -157,6 +158,9 @@ struct hoedown_buffer {
 
 // hoedown FFI
 #[link(name = "hoedown", kind = "static")]
+#[cfg(not(cargobuild))]
+extern {}
+
 extern {
     fn hoedown_html_renderer_new(render_flags: libc::c_uint,
                                  nesting_level: libc::c_int)
@@ -210,7 +214,9 @@ fn collapse_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-thread_local!(pub static PLAYGROUND_KRATE: RefCell<Option<Option<String>>> = {
+// Information about the playground if a URL has been specified, containing an
+// optional crate name and the URL.
+thread_local!(pub static PLAYGROUND: RefCell<Option<(Option<String>, String)>> = {
     RefCell::new(None)
 });
 
@@ -244,20 +250,53 @@ pub fn render(w: &mut fmt::Formatter, s: &str, print_toc: bool) -> fmt::Result {
             });
             let text = lines.collect::<Vec<&str>>().join("\n");
             if rendered { return }
-            PLAYGROUND_KRATE.with(|krate| {
-                let mut s = String::new();
-                krate.borrow().as_ref().map(|krate| {
+            PLAYGROUND.with(|play| {
+                // insert newline to clearly separate it from the
+                // previous block so we can shorten the html output
+                let mut s = String::from("\n");
+                let playground_button = play.borrow().as_ref().and_then(|&(ref krate, ref url)| {
+                    if url.is_empty() {
+                        return None;
+                    }
                     let test = origtext.lines().map(|l| {
                         stripped_filtered_line(l).unwrap_or(l)
                     }).collect::<Vec<&str>>().join("\n");
                     let krate = krate.as_ref().map(|s| &**s);
                     let test = test::maketest(&test, krate, false,
                                               &Default::default());
-                    s.push_str(&format!("<span class='rusttest'>{}</span>", Escape(&test)));
+                    let channel = if test.contains("#![feature(") {
+                        "&amp;version=nightly"
+                    } else {
+                        ""
+                    };
+                    // These characters don't need to be escaped in a URI.
+                    // FIXME: use a library function for percent encoding.
+                    fn dont_escape(c: u8) -> bool {
+                        (b'a' <= c && c <= b'z') ||
+                        (b'A' <= c && c <= b'Z') ||
+                        (b'0' <= c && c <= b'9') ||
+                        c == b'-' || c == b'_' || c == b'.' ||
+                        c == b'~' || c == b'!' || c == b'\'' ||
+                        c == b'(' || c == b')' || c == b'*'
+                    }
+                    let mut test_escaped = String::new();
+                    for b in test.bytes() {
+                        if dont_escape(b) {
+                            test_escaped.push(char::from(b));
+                        } else {
+                            write!(test_escaped, "%{:02X}", b).unwrap();
+                        }
+                    }
+                    Some(format!(
+                        r#"<a class="test-arrow" target="_blank" href="{}?code={}{}">Run</a>"#,
+                        url, test_escaped, channel
+                    ))
                 });
-                s.push_str(&highlight::highlight(&text,
-                                                 Some("rust-example-rendered"),
-                                                 None));
+                s.push_str(&highlight::render_with_highlighting(
+                               &text,
+                               Some("rust-example-rendered"),
+                               None,
+                               playground_button.as_ref().map(String::as_str)));
                 let output = CString::new(s).unwrap();
                 hoedown_buffer_puts(ob, output.as_ptr());
             })
@@ -400,7 +439,8 @@ pub fn find_testable_code(doc: &str, tests: &mut ::test::Collector) {
             let text = lines.collect::<Vec<&str>>().join("\n");
             tests.add_test(text.to_owned(),
                            block_info.should_panic, block_info.no_run,
-                           block_info.ignore, block_info.test_harness);
+                           block_info.ignore, block_info.test_harness,
+                           block_info.compile_fail, block_info.error_codes);
         }
     }
 
@@ -445,6 +485,8 @@ struct LangString {
     ignore: bool,
     rust: bool,
     test_harness: bool,
+    compile_fail: bool,
+    error_codes: Vec<String>,
 }
 
 impl LangString {
@@ -455,6 +497,8 @@ impl LangString {
             ignore: false,
             rust: true,  // NB This used to be `notrust = false`
             test_harness: false,
+            compile_fail: false,
+            error_codes: Vec::new(),
         }
     }
 
@@ -462,6 +506,12 @@ impl LangString {
         let mut seen_rust_tags = false;
         let mut seen_other_tags = false;
         let mut data = LangString::all_false();
+        let mut allow_compile_fail = false;
+        let mut allow_error_code_check = false;
+        if UnstableFeatures::from_environment().is_nightly_build() {
+            allow_compile_fail = true;
+            allow_error_code_check = true;
+        }
 
         let tokens = string.split(|c: char|
             !(c == '_' || c == '-' || c.is_alphanumeric())
@@ -474,7 +524,20 @@ impl LangString {
                 "no_run" => { data.no_run = true; seen_rust_tags = true; },
                 "ignore" => { data.ignore = true; seen_rust_tags = true; },
                 "rust" => { data.rust = true; seen_rust_tags = true; },
-                "test_harness" => { data.test_harness = true; seen_rust_tags = true; }
+                "test_harness" => { data.test_harness = true; seen_rust_tags = true; },
+                "compile_fail" if allow_compile_fail => {
+                    data.compile_fail = true;
+                    seen_rust_tags = true;
+                    data.no_run = true;
+                }
+                x if allow_error_code_check && x.starts_with("E") && x.len() == 5 => {
+                    if let Ok(_) = x[1..].parse::<u32>() {
+                        data.error_codes.push(x.to_owned());
+                        seen_rust_tags = true;
+                    } else {
+                        seen_other_tags = true;
+                    }
+                }
                 _ => { seen_other_tags = true }
             }
         }
@@ -557,35 +620,42 @@ mod tests {
     #[test]
     fn test_lang_string_parse() {
         fn t(s: &str,
-            should_panic: bool, no_run: bool, ignore: bool, rust: bool, test_harness: bool) {
+            should_panic: bool, no_run: bool, ignore: bool, rust: bool, test_harness: bool,
+            compile_fail: bool, error_codes: Vec<String>) {
             assert_eq!(LangString::parse(s), LangString {
                 should_panic: should_panic,
                 no_run: no_run,
                 ignore: ignore,
                 rust: rust,
                 test_harness: test_harness,
+                compile_fail: compile_fail,
+                error_codes: error_codes,
             })
         }
 
-        // marker                | should_panic| no_run | ignore | rust | test_harness
-        t("",                      false,        false,   false,   true,  false);
-        t("rust",                  false,        false,   false,   true,  false);
-        t("sh",                    false,        false,   false,   false, false);
-        t("ignore",                false,        false,   true,    true,  false);
-        t("should_panic",          true,         false,   false,   true,  false);
-        t("no_run",                false,        true,    false,   true,  false);
-        t("test_harness",          false,        false,   false,   true,  true);
-        t("{.no_run .example}",    false,        true,    false,   true,  false);
-        t("{.sh .should_panic}",   true,         false,   false,   true,  false);
-        t("{.example .rust}",      false,        false,   false,   true,  false);
-        t("{.test_harness .rust}", false,        false,   false,   true,  true);
+        // marker                | should_panic| no_run| ignore| rust | test_harness| compile_fail
+        //                       | error_codes
+        t("",                      false,        false,  false,  true,  false, false, Vec::new());
+        t("rust",                  false,        false,  false,  true,  false, false, Vec::new());
+        t("sh",                    false,        false,  false,  false, false, false, Vec::new());
+        t("ignore",                false,        false,  true,   true,  false, false, Vec::new());
+        t("should_panic",          true,         false,  false,  true,  false, false, Vec::new());
+        t("no_run",                false,        true,   false,  true,  false, false, Vec::new());
+        t("test_harness",          false,        false,  false,  true,  true,  false, Vec::new());
+        t("compile_fail",          false,        true,   false,  true,  false, true,  Vec::new());
+        t("E0450",                 false,        false,  false,  true,  false, false,
+                                   vec!["E0450".to_owned()]);
+        t("{.no_run .example}",    false,        true,   false,  true,  false, false, Vec::new());
+        t("{.sh .should_panic}",   true,         false,  false,  true,  false, false, Vec::new());
+        t("{.example .rust}",      false,        false,  false,  true,  false, false, Vec::new());
+        t("{.test_harness .rust}", false,        false,  false,  true,  true,  false, Vec::new());
     }
 
     #[test]
     fn issue_17736() {
         let markdown = "# title";
         format!("{}", Markdown(markdown));
-        reset_ids();
+        reset_ids(true);
     }
 
     #[test]
@@ -593,7 +663,7 @@ mod tests {
         fn t(input: &str, expect: &str) {
             let output = format!("{}", Markdown(input));
             assert_eq!(output, expect);
-            reset_ids();
+            reset_ids(true);
         }
 
         t("# Foo bar", "\n<h1 id='foo-bar' class='section-header'>\
@@ -632,7 +702,7 @@ mod tests {
               <a href='#panics-1'>Panics</a></h1>");
         };
         test();
-        reset_ids();
+        reset_ids(true);
         test();
     }
 

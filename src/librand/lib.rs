@@ -23,37 +23,34 @@
        html_root_url = "https://doc.rust-lang.org/nightly/",
        html_playground_url = "https://play.rust-lang.org/",
        test(attr(deny(warnings))))]
+#![cfg_attr(not(stage0), deny(warnings))]
 #![no_std]
 #![unstable(feature = "rand",
             reason = "use `rand` from crates.io",
             issue = "27703")]
-#![feature(core_float)]
 #![feature(core_intrinsics)]
-#![feature(num_bits_bytes)]
 #![feature(staged_api)]
 #![feature(step_by)]
 #![feature(custom_attribute)]
 #![allow(unused_attributes)]
 
-#![cfg_attr(test, feature(test, rand, rustc_private, iter_order_deprecated))]
+#![cfg_attr(not(test), feature(core_float))] // only necessary for no_std
+#![cfg_attr(test, feature(test, rand))]
 
 #![allow(deprecated)]
 
 #[cfg(test)]
 #[macro_use]
 extern crate std;
-#[cfg(test)]
-#[macro_use]
-extern crate log;
 
 use core::f64;
 use core::intrinsics;
 use core::marker::PhantomData;
 
-pub use isaac::{IsaacRng, Isaac64Rng};
+pub use isaac::{Isaac64Rng, IsaacRng};
 pub use chacha::ChaChaRng;
 
-use distributions::{Range, IndependentSample};
+use distributions::{IndependentSample, Range};
 use distributions::range::SampleRange;
 
 #[cfg(test)]
@@ -69,7 +66,8 @@ mod rand_impls;
 // needed by librand; this is necessary because librand doesn't
 // depend on libstd.  This will go away when librand is integrated
 // into libstd.
-trait FloatMath : Sized {
+#[doc(hidden)]
+trait FloatMath: Sized {
     fn exp(self) -> Self;
     fn ln(self) -> Self;
     fn sqrt(self) -> Self;
@@ -104,14 +102,14 @@ impl FloatMath for f64 {
 
 /// A type that can be randomly generated using an `Rng`.
 #[doc(hidden)]
-pub trait Rand : Sized {
+pub trait Rand: Sized {
     /// Generates a random instance of this type using the specified source of
     /// randomness.
     fn rand<R: Rng>(rng: &mut R) -> Self;
 }
 
 /// A random number generator.
-pub trait Rng : Sized {
+pub trait Rng: Sized {
     /// Return the next random u32.
     ///
     /// This rarely needs to be called directly, prefer `r.gen()` to

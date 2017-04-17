@@ -41,6 +41,7 @@ use sync::mpsc::Receiver;
 use sync::mpsc::blocking::{self, SignalToken};
 use core::mem;
 use sync::atomic::{AtomicUsize, Ordering};
+use time::Instant;
 
 // Various states you can find a port in.
 const EMPTY: usize = 0;          // initial state: no data, no blocked receiver
@@ -112,6 +113,8 @@ impl<T> Packet<T> {
             // Couldn't send the data, the port hung up first. Return the data
             // back up the stack.
             DISCONNECTED => {
+                self.state.swap(DISCONNECTED, Ordering::SeqCst);
+                self.upgrade = NothingSent;
                 Err(self.data.take().unwrap())
             }
 
@@ -136,7 +139,7 @@ impl<T> Packet<T> {
         }
     }
 
-    pub fn recv(&mut self) -> Result<T, Failure<T>> {
+    pub fn recv(&mut self, deadline: Option<Instant>) -> Result<T, Failure<T>> {
         // Attempt to not block the thread (it's a little expensive). If it looks
         // like we're not empty, then immediately go through to `try_recv`.
         if self.state.load(Ordering::SeqCst) == EMPTY {
@@ -145,8 +148,16 @@ impl<T> Packet<T> {
 
             // race with senders to enter the blocking state
             if self.state.compare_and_swap(EMPTY, ptr, Ordering::SeqCst) == EMPTY {
-                wait_token.wait();
-                debug_assert!(self.state.load(Ordering::SeqCst) != EMPTY);
+                if let Some(deadline) = deadline {
+                    let timed_out = !wait_token.wait_max_until(deadline);
+                    // Try to reset the state
+                    if timed_out {
+                        self.abort_selection().map_err(Upgraded)?;
+                    }
+                } else {
+                    wait_token.wait();
+                    debug_assert!(self.state.load(Ordering::SeqCst) != EMPTY);
+                }
             } else {
                 // drop the signal token, since we never blocked
                 drop(unsafe { SignalToken::cast_from_usize(ptr) });

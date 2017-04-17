@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-emscripten No support for threads
+
 #![allow(unknown_features)]
-#![feature(unboxed_closures, std_misc)]
+#![feature(std_misc)]
 
 /**
    A somewhat reduced test case to expose some Valgrind issues.
@@ -97,5 +99,5 @@ mod map_reduce {
 
 pub fn main() {
     map_reduce::map_reduce(
-        vec!("../src/test/run-pass/hashmap-memory.rs".to_string()));
+        vec!["../src/test/run-pass/hashmap-memory.rs".to_string()]);
 }

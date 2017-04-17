@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(reflect_marker)]
+
 // Test that there is no way to get a generic type `T` to be
 // considered as `Reflect` (or accessible via something that is
 // considered `Reflect`) without a reflect bound, but that any
@@ -22,7 +24,7 @@ struct Struct<T>(T);
 fn is_reflect<T:Reflect>() { }
 
 fn c<T>() {
-    is_reflect::<Struct<T>>(); //~ ERROR not implemented
+    is_reflect::<Struct<T>>(); //~ ERROR E0277
 }
 
 fn ok_c<T: Reflect>() {
@@ -30,7 +32,7 @@ fn ok_c<T: Reflect>() {
 }
 
 fn d<T>() {
-    is_reflect::<(i32, T)>(); //~ ERROR not implemented
+    is_reflect::<(i32, T)>(); //~ ERROR E0277
 }
 
 fn main() {

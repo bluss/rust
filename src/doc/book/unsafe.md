@@ -4,7 +4,7 @@ Rust’s main draw is its powerful static guarantees about behavior. But safety
 checks are conservative by nature: there are some programs that are actually
 safe, but the compiler is not able to verify this is true. To write these kinds
 of programs, we need to tell the compiler to relax its restrictions a bit. For
-this, Rust has a keyword, `unsafe`. Code using `unsafe` has less restrictions
+this, Rust has a keyword, `unsafe`. Code using `unsafe` has fewer restrictions
 than normal code does.
 
 Let’s go over the syntax, and then we’ll talk semantics. `unsafe` is used in
@@ -12,7 +12,7 @@ four contexts. The first one is to mark a function as unsafe:
 
 ```rust
 unsafe fn danger_will_robinson() {
-    // scary stuff
+    // Scary stuff...
 }
 ```
 
@@ -23,7 +23,7 @@ The second use of `unsafe` is an unsafe block:
 
 ```rust
 unsafe {
-    // scary stuff
+    // Scary stuff...
 }
 ```
 
@@ -63,7 +63,7 @@ In addition, the following are all undefined behaviors in Rust, and must be
 avoided, even when writing `unsafe` code:
 
 * Data races
-* Dereferencing a null/dangling raw pointer
+* Dereferencing a NULL/dangling raw pointer
 * Reads of [undef][undef] (uninitialized) memory
 * Breaking the [pointer aliasing rules][aliasing] with raw pointers.
 * `&mut T` and `&T` follow LLVM’s scoped [noalias][noalias] model, except if
@@ -77,7 +77,7 @@ avoided, even when writing `unsafe` code:
   * Using `std::ptr::copy_nonoverlapping_memory` (`memcpy32`/`memcpy64`
     intrinsics) on overlapping buffers
 * Invalid values in primitive types, even in private fields/locals:
-  * Null/dangling references or boxes
+  * NULL/dangling references or boxes
   * A value other than `false` (0) or `true` (1) in a `bool`
   * A discriminant in an `enum` not included in its type definition
   * A value in a `char` which is a surrogate or above `char::MAX`

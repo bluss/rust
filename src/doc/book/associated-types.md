@@ -11,7 +11,7 @@ this:
 trait Graph<N, E> {
     fn has_edge(&self, &N, &N) -> bool;
     fn edges(&self, &N) -> Vec<E>;
-    // etc
+    // Etc.
 }
 ```
 
@@ -36,7 +36,7 @@ trait Graph {
 
     fn has_edge(&self, &Self::N, &Self::N) -> bool;
     fn edges(&self, &Self::N) -> Vec<Self::E>;
-    // etc
+    // Etc.
 }
 ```
 
@@ -67,7 +67,7 @@ trait Graph {
 Simple enough. Associated types use the `type` keyword, and go inside the body
 of the trait, with the functions.
 
-These `type` declarations can have all the same thing as functions do. For example,
+These type declarations work the same way as those for functions. For example,
 if we wanted our `N` type to implement `Display`, so we can print the nodes out,
 we could do this:
 
@@ -131,7 +131,7 @@ declarations.
 ## Trait objects with associated types
 
 There’s one more bit of syntax we should talk about: trait objects. If you
-try to create a trait object from an associated type, like this:
+try to create a trait object from a trait with an associated type, like this:
 
 ```rust,ignore
 # trait Graph {

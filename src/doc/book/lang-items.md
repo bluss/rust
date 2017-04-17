@@ -15,7 +15,7 @@ For example, `Box` pointers require two lang items, one for allocation
 and one for deallocation. A freestanding program that uses the `Box`
 sugar for dynamic allocations via `malloc` and `free`:
 
-```rust
+```rust,ignore
 #![feature(lang_items, box_syntax, start, libc)]
 #![no_std]
 
@@ -32,16 +32,22 @@ pub struct Box<T>(*mut T);
 unsafe fn allocate(size: usize, _align: usize) -> *mut u8 {
     let p = libc::malloc(size as libc::size_t) as *mut u8;
 
-    // malloc failed
+    // Check if `malloc` failed:
     if p as usize == 0 {
         abort();
     }
 
     p
 }
+
 #[lang = "exchange_free"]
 unsafe fn deallocate(ptr: *mut u8, _size: usize, _align: usize) {
     libc::free(ptr as *mut libc::c_void)
+}
+
+#[lang = "box_free"]
+unsafe fn box_free<T: ?Sized>(ptr: *mut T) {
+    deallocate(ptr as *mut u8, ::core::mem::size_of_val(&*ptr), ::core::mem::align_of_val(&*ptr));
 }
 
 #[start]
@@ -51,8 +57,8 @@ fn main(argc: isize, argv: *const *const u8) -> isize {
     0
 }
 
-#[lang = "eh_personality"] extern fn eh_personality() {}
-#[lang = "panic_fmt"] fn panic_fmt() -> ! { loop {} }
+#[lang = "eh_personality"] extern fn rust_eh_personality() {}
+#[lang = "panic_fmt"] extern fn rust_begin_panic() -> ! { loop {} }
 # #[lang = "eh_unwind_resume"] extern fn rust_eh_unwind_resume() {}
 # #[no_mangle] pub extern fn rust_eh_register_frames () {}
 # #[no_mangle] pub extern fn rust_eh_unregister_frames () {}
@@ -67,8 +73,8 @@ Other features provided by lang items include:
   `==`, `<`, dereferencing (`*`) and `+` (etc.) operators are all
   marked with lang items; those specific four are `eq`, `ord`,
   `deref`, and `add` respectively.
-- stack unwinding and general failure; the `eh_personality`, `fail`
-  and `fail_bounds_checks` lang items.
+- stack unwinding and general failure; the `eh_personality`,
+  `eh_unwind_resume`, `fail` and `fail_bounds_checks` lang items.
 - the traits in `std::marker` used to indicate types of
   various kinds; lang items `send`, `sync` and `copy`.
 - the marker types and variance indicators found in

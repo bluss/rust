@@ -8,34 +8,34 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(missing_docs)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
-use prelude::v1::*;
+#![allow(missing_docs, bad_style)]
 
 use ffi::{OsStr, OsString};
 use io::{self, ErrorKind};
-use num::Zero;
 use os::windows::ffi::{OsStrExt, OsStringExt};
 use path::PathBuf;
 use time::Duration;
-use alloc::oom;
 
 #[macro_use] pub mod compat;
 
+pub mod args;
 pub mod backtrace;
 pub mod c;
 pub mod condvar;
+pub mod dynamic_lib;
+pub mod env;
 pub mod ext;
 pub mod fs;
 pub mod handle;
+pub mod memchr;
 pub mod mutex;
 pub mod net;
 pub mod os;
 pub mod os_str;
+pub mod path;
 pub mod pipe;
 pub mod process;
+pub mod rand;
 pub mod rwlock;
 pub mod stack_overflow;
 pub mod thread;
@@ -43,31 +43,33 @@ pub mod thread_local;
 pub mod time;
 pub mod stdio;
 
-// See comment in sys/unix/mod.rs
-fn oom_handler() -> ! {
-    use intrinsics;
-    use ptr;
-    let msg = "fatal runtime error: out of memory\n";
-    unsafe {
-        // WriteFile silently fails if it is passed an invalid handle, so there
-        // is no need to check the result of GetStdHandle.
-        c::WriteFile(c::GetStdHandle(c::STD_ERROR_HANDLE),
-                     msg.as_ptr() as c::LPVOID,
-                     msg.len() as c::DWORD,
-                     ptr::null_mut(),
-                     ptr::null_mut());
-        intrinsics::abort();
-    }
-}
-
+#[cfg(not(test))]
 pub fn init() {
-    oom::set_oom_handler(oom_handler);
+    ::alloc::oom::set_oom_handler(oom_handler);
+
+    // See comment in sys/unix/mod.rs
+    fn oom_handler() -> ! {
+        use intrinsics;
+        use ptr;
+        let msg = "fatal runtime error: out of memory\n";
+        unsafe {
+            // WriteFile silently fails if it is passed an invalid handle, so
+            // there is no need to check the result of GetStdHandle.
+            c::WriteFile(c::GetStdHandle(c::STD_ERROR_HANDLE),
+                         msg.as_ptr() as c::LPVOID,
+                         msg.len() as c::DWORD,
+                         ptr::null_mut(),
+                         ptr::null_mut());
+            intrinsics::abort();
+        }
+    }
 }
 
 pub fn decode_error_kind(errno: i32) -> ErrorKind {
     match errno as c::DWORD {
         c::ERROR_ACCESS_DENIED => return ErrorKind::PermissionDenied,
         c::ERROR_ALREADY_EXISTS => return ErrorKind::AlreadyExists,
+        c::ERROR_FILE_EXISTS => return ErrorKind::AlreadyExists,
         c::ERROR_BROKEN_PIPE => return ErrorKind::BrokenPipe,
         c::ERROR_FILE_NOT_FOUND => return ErrorKind::NotFound,
         c::ERROR_PATH_NOT_FOUND => return ErrorKind::NotFound,
@@ -177,15 +179,29 @@ pub fn truncate_utf16_at_nul<'a>(v: &'a [u16]) -> &'a [u16] {
     }
 }
 
-fn cvt<I: PartialEq + Zero>(i: I) -> io::Result<I> {
-    if i == I::zero() {
+pub trait IsZero {
+    fn is_zero(&self) -> bool;
+}
+
+macro_rules! impl_is_zero {
+    ($($t:ident)*) => ($(impl IsZero for $t {
+        fn is_zero(&self) -> bool {
+            *self == 0
+        }
+    })*)
+}
+
+impl_is_zero! { i8 i16 i32 i64 isize u8 u16 u32 u64 usize }
+
+pub fn cvt<I: IsZero>(i: I) -> io::Result<I> {
+    if i.is_zero() {
         Err(io::Error::last_os_error())
     } else {
         Ok(i)
     }
 }
 
-fn dur2timeout(dur: Duration) -> c::DWORD {
+pub fn dur2timeout(dur: Duration) -> c::DWORD {
     // Note that a duration is a (u64, u32) (seconds, nanoseconds) pair, and the
     // timeouts in windows APIs are typically u32 milliseconds. To translate, we
     // have two pieces to take care of:
@@ -204,4 +220,18 @@ fn dur2timeout(dur: Duration) -> c::DWORD {
             ms as c::DWORD
         }
     }).unwrap_or(c::INFINITE)
+}
+
+// On Windows, use the processor-specific __fastfail mechanism.  In Windows 8
+// and later, this will terminate the process immediately without running any
+// in-process exception handlers.  In earlier versions of Windows, this
+// sequence of instructions will be treated as an access violation,
+// terminating the process but without necessarily bypassing all exception
+// handlers.
+//
+// https://msdn.microsoft.com/en-us/library/dn774154.aspx
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub unsafe fn abort_internal() -> ! {
+    asm!("int $$0x29" :: "{ecx}"(7) ::: volatile); // 7 is FAST_FAIL_FATAL_APP_EXIT
+    ::intrinsics::unreachable();
 }

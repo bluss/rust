@@ -19,6 +19,7 @@ has a command that does that for us. Let’s give it a shot:
 ```bash
 $ cd ~/projects
 $ cargo new guessing_game --bin
+     Created binary (application) `guessing_game` project
 $ cd guessing_game
 ```
 
@@ -51,25 +52,24 @@ Let’s try compiling what Cargo gave us:
 ```{bash}
 $ cargo build
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.53 secs
 ```
 
 Excellent! Open up your `src/main.rs` again. We’ll be writing all of
 our code in this file.
 
-Before we move on, let me show you one more Cargo command: `run`. `cargo run`
-is kind of like `cargo build`, but it also then runs the produced executable.
-Try it out:
+Remember the `run` command from last chapter? Try it out again here:
 
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
      Running `target/debug/guessing_game`
 Hello, world!
 ```
 
-Great! The `run` command comes in handy when you need to rapidly iterate on a
-project. Our game is such a project, we need to quickly test each
-iteration before moving on to the next one.
+Great! Our game is just the kind of project `run` is good for: we need
+to quickly test each iteration before moving on to the next one.
 
 # Processing a Guess
 
@@ -158,8 +158,8 @@ take a name on the left hand side of the assignment, it actually accepts a
 to use for now:
 
 ```rust
-let foo = 5; // immutable.
-let mut bar = 5; // mutable
+let foo = 5; // `foo` is immutable.
+let mut bar = 5; // `bar` is mutable.
 ```
 
 [immutable]: mutability.html
@@ -258,7 +258,7 @@ done:
     io::stdin().read_line(&mut guess).expect("failed to read line");
 ```
 
-But that gets hard to read. So we’ve split it up, three lines for three method
+But that gets hard to read. So we’ve split it up, two lines for two method
 calls. We already talked about `read_line()`, but what about `expect()`? Well,
 we already mentioned that `read_line()` puts what the user types into the `&mut
 String` we pass it. But it also returns a value: in this case, an
@@ -276,26 +276,29 @@ it’s called on, and if it isn’t a successful one, [`panic!`][panic]s with a
 message you passed it. A `panic!` like this will cause our program to crash,
 displaying the message.
 
-[expect]: ../std/option/enum.Option.html#method.expect
+[expect]: ../std/result/enum.Result.html#method.expect
 [panic]: error-handling.html
 
-If we leave off calling these two methods, our program will compile, but
+If we do not call `expect()`, our program will compile, but
 we’ll get a warning:
 
 ```bash
 $ cargo build
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
-src/main.rs:10:5: 10:39 warning: unused result which must be used,
-#[warn(unused_must_use)] on by default
-src/main.rs:10     io::stdin().read_line(&mut guess);
-                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+warning: unused result which must be used, #[warn(unused_must_use)] on by default
+  --> src/main.rs:10:5
+   |
+10 |     io::stdin().read_line(&mut guess);
+   |     ^
+
+    Finished debug [unoptimized + debuginfo] target(s) in 0.42 secs
 ```
 
 Rust warns us that we haven’t used the `Result` value. This warning comes from
 a special annotation that `io::Result` has. Rust is trying to tell you that
 you haven’t handled a possible error. The right way to suppress the error is
 to actually write error handling. Luckily, if we want to crash if there’s
-a problem, we can use these two little methods. If we can recover from the
+a problem, we can use `expect()`. If we can recover from the
 error somehow, we’d do something else, but we’ll save that for a future
 project.
 
@@ -324,6 +327,7 @@ Anyway, that’s the tour. We can run what we have with `cargo run`:
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.44 secs
      Running `target/debug/guessing_game`
 Guess the number!
 Please input your guess.
@@ -365,23 +369,23 @@ numbers. A bare number like above is actually shorthand for `^0.3.0`,
 meaning "anything compatible with 0.3.0".
 If we wanted to use only `0.3.0` exactly, we could say `rand="=0.3.0"`
 (note the two equal signs).
-And if we wanted to use the latest version we could use `*`.
 We could also use a range of versions.
 [Cargo’s documentation][cargodoc] contains more details.
 
 [semver]: http://semver.org
-[cargodoc]: http://doc.crates.io/crates-io.html
+[cargodoc]: http://doc.crates.io/specifying-dependencies.html
 
 Now, without changing any of our code, let’s build our project:
 
 ```bash
 $ cargo build
     Updating registry `https://github.com/rust-lang/crates.io-index`
- Downloading rand v0.3.8
- Downloading libc v0.1.6
-   Compiling libc v0.1.6
-   Compiling rand v0.3.8
+ Downloading rand v0.3.14
+ Downloading libc v0.2.17
+   Compiling libc v0.2.17
+   Compiling rand v0.3.14
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 5.88 secs
 ```
 
 (You may see different versions, of course.)
@@ -403,22 +407,24 @@ If we run `cargo build` again, we’ll get different output:
 
 ```bash
 $ cargo build
+    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
 ```
 
-That’s right, no output! Cargo knows that our project has been built, and that
+That’s right, nothing was done! Cargo knows that our project has been built, and that
 all of its dependencies are built, and so there’s no reason to do all that
 stuff. With nothing to do, it simply exits. If we open up `src/main.rs` again,
-make a trivial change, and then save it again, we’ll only see one line:
+make a trivial change, and then save it again, we’ll only see two lines:
 
 ```bash
 $ cargo build
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.45 secs
 ```
 
 So, we told Cargo we wanted any `0.3.x` version of `rand`, and so it fetched the latest
-version at the time this was written, `v0.3.8`. But what happens when next
-week, version `v0.3.9` comes out, with an important bugfix? While getting
-bugfixes is important, what if `0.3.9` contains a regression that breaks our
+version at the time this was written, `v0.3.14`. But what happens when next
+week, version `v0.3.15` comes out, with an important bugfix? While getting
+bugfixes is important, what if `0.3.15` contains a regression that breaks our
 code?
 
 The answer to this problem is the `Cargo.lock` file you’ll now find in your
@@ -427,11 +433,11 @@ figures out all of the versions that fit your criteria, and then writes them
 to the `Cargo.lock` file. When you build your project in the future, Cargo
 will see that the `Cargo.lock` file exists, and then use that specific version
 rather than do all the work of figuring out versions again. This lets you
-have a repeatable build automatically. In other words, we’ll stay at `0.3.8`
+have a repeatable build automatically. In other words, we’ll stay at `0.3.14`
 until we explicitly upgrade, and so will anyone who we share our code with,
 thanks to the lock file.
 
-What about when we _do_ want to use `v0.3.9`? Cargo has another command,
+What about when we _do_ want to use `v0.3.15`? Cargo has another command,
 `update`, which says ‘ignore the lock, figure out all the latest versions that
 fit what we’ve specified. If that works, write those versions out to the lock
 file’. But, by default, Cargo will only look for versions larger than `0.3.0`
@@ -514,6 +520,7 @@ Try running our new program a few times:
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.55 secs
      Running `target/debug/guessing_game`
 Guess the number!
 The secret number is: 7
@@ -521,6 +528,7 @@ Please input your guess.
 4
 You guessed: 4
 $ cargo run
+    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
      Running `target/debug/guessing_game`
 Guess the number!
 The secret number is: 83
@@ -622,15 +630,20 @@ I did mention that this won’t quite compile yet, though. Let’s try it:
 ```bash
 $ cargo build
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
-src/main.rs:28:21: 28:35 error: mismatched types:
- expected `&collections::string::String`,
-    found `&_`
-(expected struct `collections::string::String`,
-    found integral variable) [E0308]
-src/main.rs:28     match guess.cmp(&secret_number) {
-                                   ^~~~~~~~~~~~~~
+error[E0308]: mismatched types
+  --> src/main.rs:23:21
+   |
+23 |     match guess.cmp(&secret_number) {
+   |                     ^^^^^^^^^^^^^^ expected struct `std::string::String`, found integral variable
+   |
+   = note: expected type `&std::string::String`
+   = note:    found type `&{integer}`
+
 error: aborting due to previous error
-Could not compile `guessing_game`.
+
+error: Could not compile `guessing_game`.
+
+To learn more, run the command again with --verbose.
 ```
 
 Whew! This is a big error. The core of it is that we have ‘mismatched types’.
@@ -644,7 +657,7 @@ So far, that hasn’t mattered, and so Rust defaults to an `i32`. However, here,
 Rust doesn’t know how to compare the `guess` and the `secret_number`. They
 need to be the same type. Ultimately, we want to convert the `String` we
 read as input into a real number type, for comparison. We can do that
-with three more lines. Here’s our new program:
+with two more lines. Here’s our new program:
 
 ```rust,ignore
 extern crate rand;
@@ -680,7 +693,7 @@ fn main() {
 }
 ```
 
-The new three lines:
+The new two lines:
 
 ```rust,ignore
     let guess: u32 = guess.trim().parse()
@@ -726,6 +739,7 @@ Let’s try our program out!
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.57 secs
      Running `target/guessing_game`
 Guess the number!
 The secret number is: 58
@@ -789,6 +803,7 @@ and quit. Observe:
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.58 secs
      Running `target/guessing_game`
 Guess the number!
 The secret number is: 59
@@ -806,7 +821,7 @@ You guessed: 59
 You win!
 Please input your guess.
 quit
-thread '<main>' panicked at 'Please type a number!'
+thread 'main' panicked at 'Please type a number!'
 ```
 
 Ha! `quit` actually quits. As does any other non-number input. Well, this is
@@ -906,22 +921,24 @@ let guess: u32 = match guess.trim().parse() {
     Err(_) => continue,
 };
 ```
-
 This is how you generally move from ‘crash on error’ to ‘actually handle the
-returned by `parse()` is an `enum`  like `Ordering`, but in this case, each
-variant has some data associated with it: `Ok` is a success, and `Err` is a
+error’, by switching from `expect()` to a `match` statement. A `Result` is
+returned by `parse()`, this is an `enum`  like `Ordering`, but in this case,
+each variant has some data associated with it: `Ok` is a success, and `Err` is a
 failure. Each contains more information: the successfully parsed integer, or an
-error type. In this case, we `match` on `Ok(num)`, which sets the inner value
-of the `Ok` to the name `num`, and then we  return it on the right-hand
-side. In the `Err` case, we don’t care what kind of error it is, so we
-use `_` instead of a name. This ignores the error, and `continue` causes us
-to go to the next iteration of the `loop`.
+error type. In this case, we `match` on `Ok(num)`, which sets the name `num` to
+the unwrapped `Ok` value (the integer), and then we  return it on the
+right-hand side. In the `Err` case, we don’t care what kind of error it is, so
+we just use the catch all `_` instead of a name. This catches everything that
+isn't `Ok`, and `continue` lets us move to the next iteration of the loop; in
+effect, this enables us to ignore all errors and continue with our program.
 
 Now we should be good! Let’s try:
 
 ```bash
 $ cargo run
    Compiling guessing_game v0.1.0 (file:///home/you/projects/guessing_game)
+    Finished debug [unoptimized + debuginfo] target(s) in 0.57 secs
      Running `target/guessing_game`
 Guess the number!
 The secret number is: 61
@@ -987,8 +1004,7 @@ fn main() {
 
 # Complete!
 
-At this point, you have successfully built the Guessing Game! Congratulations!
+This project showed you a lot: `let`, `match`, methods, associated
+functions, using external crates, and more.
 
-This first project showed you a lot: `let`, `match`, methods, associated
-functions, using external crates, and more. Our next project will show off
-even more.
+At this point, you have successfully built the Guessing Game! Congratulations!

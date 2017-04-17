@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(reflect_marker)]
+
 // Test that types that appear in assoc bindings in an object
 // type are subject to the reflect check.
 
@@ -24,7 +26,7 @@ struct Struct<T>(T);
 fn is_reflect<T:Reflect>() { }
 
 fn a<T>() {
-    is_reflect::<Box<Get<Output=T>>>(); //~ ERROR not implemented
+    is_reflect::<Box<Get<Output=T>>>(); //~ ERROR E0277
 }
 
 fn ok_a<T: Reflect>() {

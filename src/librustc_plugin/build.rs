@@ -12,16 +12,18 @@
 
 use syntax::ast;
 use syntax::attr;
-use syntax::codemap::Span;
-use syntax::errors;
-use rustc_front::intravisit::Visitor;
-use rustc_front::hir;
+use errors;
+use syntax_pos::Span;
+use rustc::dep_graph::DepNode;
+use rustc::hir::map::Map;
+use rustc::hir::itemlikevisit::ItemLikeVisitor;
+use rustc::hir;
 
 struct RegistrarFinder {
     registrars: Vec<(ast::NodeId, Span)> ,
 }
 
-impl<'v> Visitor<'v> for RegistrarFinder {
+impl<'v> ItemLikeVisitor<'v> for RegistrarFinder {
     fn visit_item(&mut self, item: &hir::Item) {
         if let hir::ItemFn(..) = item.node {
             if attr::contains_name(&item.attrs,
@@ -30,14 +32,20 @@ impl<'v> Visitor<'v> for RegistrarFinder {
             }
         }
     }
+
+    fn visit_impl_item(&mut self, _impl_item: &hir::ImplItem) {
+    }
 }
 
 /// Find the function marked with `#[plugin_registrar]`, if any.
 pub fn find_plugin_registrar(diagnostic: &errors::Handler,
-                             krate: &hir::Crate)
+                             hir_map: &Map)
                              -> Option<ast::NodeId> {
+    let _task = hir_map.dep_graph.in_task(DepNode::PluginRegistrar);
+    let krate = hir_map.krate();
+
     let mut finder = RegistrarFinder { registrars: Vec::new() };
-    krate.visit_all_items(&mut finder);
+    krate.visit_all_item_likes(&mut finder);
 
     match finder.registrars.len() {
         0 => None,

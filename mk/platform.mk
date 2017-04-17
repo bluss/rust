@@ -77,23 +77,6 @@ define DEF_GOOD_VALGRIND
 endef
 $(foreach t,$(CFG_TARGET),$(eval $(call DEF_GOOD_VALGRIND,$(t))))
 
-ifneq ($(findstring linux,$(CFG_OSTYPE)),)
-  ifdef CFG_PERF
-    ifneq ($(CFG_PERF_WITH_LOGFD),)
-        CFG_PERF_TOOL := $(CFG_PERF) stat -r 3 --log-fd 2
-    else
-        CFG_PERF_TOOL := $(CFG_PERF) stat -r 3
-    endif
-  else
-    ifdef CFG_VALGRIND
-      CFG_PERF_TOOL := \
-        $(CFG_VALGRIND) --tool=cachegrind --cache-sim=yes --branch-sim=yes
-    else
-      CFG_PERF_TOOL := /usr/bin/time --verbose
-    endif
-  endif
-endif
-
 AR := ar
 
 define SET_FROM_CFG
@@ -119,8 +102,6 @@ include $(wildcard $(CFG_SRC_DIR)mk/cfg/*.mk)
 define ADD_INSTALLED_OBJECTS
   INSTALLED_OBJECTS_$(1) += $$(CFG_INSTALLED_OBJECTS_$(1))
   REQUIRED_OBJECTS_$(1) += $$(CFG_THIRD_PARTY_OBJECTS_$(1))
-  INSTALLED_OBJECTS_$(1) += $$(call CFG_STATIC_LIB_NAME_$(1),compiler-rt)
-  REQUIRED_OBJECTS_$(1) += $$(call CFG_STATIC_LIB_NAME_$(1),compiler-rt)
 endef
 
 $(foreach target,$(CFG_TARGET), \
@@ -134,6 +115,18 @@ endef
 
 $(foreach target,$(CFG_TARGET), \
   $(eval $(call DEFINE_LINKER,$(target))))
+
+define ADD_JEMALLOC_DEP
+  ifndef CFG_DISABLE_JEMALLOC_$(1)
+    ifndef CFG_DISABLE_JEMALLOC
+      RUST_DEPS_std_T_$(1) += alloc_jemalloc
+      TARGET_CRATES_$(1) += alloc_jemalloc
+    endif
+  endif
+endef
+
+$(foreach target,$(CFG_TARGET), \
+  $(eval $(call ADD_JEMALLOC_DEP,$(target))))
 
 # The -Qunused-arguments sidesteps spurious warnings from clang
 define FILTER_FLAGS
@@ -153,7 +146,7 @@ define CC_MACROS
   CFG_CC_INCLUDE_$(1)=-I $$(1)
   ifeq ($$(findstring msvc,$(1)),msvc)
     CFG_CC_OUTPUT_$(1)=-Fo:$$(1)
-    CFG_CREATE_ARCHIVE_$(1)=$$(AR_$(1)) -OUT:$$(1)
+    CFG_CREATE_ARCHIVE_$(1)='$$(AR_$(1))' -OUT:$$(1)
   else
     CFG_CC_OUTPUT_$(1)=-o $$(1)
     CFG_CREATE_ARCHIVE_$(1)=$$(AR_$(1)) crus $$(1)
@@ -174,7 +167,7 @@ ifdef CFG_CCACHE_BASEDIR
   export CCACHE_BASEDIR
 endif
 
-FIND_COMPILER = $(word 1,$(1:ccache=))
+FIND_COMPILER = $(strip $(1:ccache=))
 
 define CFG_MAKE_TOOLCHAIN
   # Prepend the tools with their prefix if cross compiling
@@ -192,7 +185,7 @@ define CFG_MAKE_TOOLCHAIN
     endif
   endif
 
-  CFG_COMPILE_C_$(1) = $$(CC_$(1)) \
+  CFG_COMPILE_C_$(1) = '$$(call FIND_COMPILER,$$(CC_$(1)))' \
         $$(CFLAGS) \
         $$(CFG_GCCISH_CFLAGS) \
         $$(CFG_GCCISH_CFLAGS_$(1)) \
@@ -203,7 +196,7 @@ define CFG_MAKE_TOOLCHAIN
         $$(CFG_GCCISH_LINK_FLAGS_$(1)) \
         $$(CFG_GCCISH_DEF_FLAG_$(1))$$(3) $$(2) \
         $$(call CFG_INSTALL_NAME_$(1),$$(4))
-  CFG_COMPILE_CXX_$(1) = $$(CXX_$(1)) \
+  CFG_COMPILE_CXX_$(1) = '$$(call FIND_COMPILER,$$(CXX_$(1)))' \
         $$(CXXFLAGS) \
         $$(CFG_GCCISH_CFLAGS) \
         $$(CFG_GCCISH_CXXFLAGS) \
@@ -226,12 +219,19 @@ define CFG_MAKE_TOOLCHAIN
     LLVM_MC_RELOCATION_MODEL="default"
   endif
 
+  # LLVM changed this flag in 3.9
+  ifdef CFG_LLVM_MC_HAS_RELOCATION_MODEL
+    LLVM_MC_RELOC_FLAG := -relocation-model=$$(LLVM_MC_RELOCATION_MODEL)
+  else
+    LLVM_MC_RELOC_FLAG := -position-independent
+  endif
+
   # We're using llvm-mc as our assembler because it supports
   # .cfi pseudo-ops on mac
   CFG_ASSEMBLE_$(1)=$$(CPP_$(1)) -E $$(2) | \
                     $$(LLVM_MC_$$(CFG_BUILD)) \
                     -assemble \
-                    -relocation-model=$$(LLVM_MC_RELOCATION_MODEL) \
+                    $$(LLVM_MC_RELOC_FLAG) \
                     -filetype=obj \
                     -triple=$(1) \
                     -o=$$(1)

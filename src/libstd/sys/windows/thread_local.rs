@@ -8,8 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use prelude::v1::*;
-
 use ptr;
 use sys::c;
 use sys_common::mutex::Mutex;
@@ -69,9 +67,8 @@ static mut DTORS: *mut Vec<(Key, Dtor)> = ptr::null_mut();
 pub unsafe fn create(dtor: Option<Dtor>) -> Key {
     let key = c::TlsAlloc();
     assert!(key != c::TLS_OUT_OF_INDEXES);
-    match dtor {
-        Some(f) => register_dtor(key, f),
-        None => {}
+    if let Some(f) = dtor {
+        register_dtor(key, f);
     }
     return key;
 }
@@ -233,12 +230,12 @@ unsafe fn unregister_dtor(key: Key) -> bool {
 
 #[link_section = ".CRT$XLB"]
 #[linkage = "external"]
-#[allow(warnings)]
+#[allow(dead_code, unused_variables)]
 pub static p_thread_callback: unsafe extern "system" fn(c::LPVOID, c::DWORD,
                                                         c::LPVOID) =
         on_tls_callback;
 
-#[allow(warnings)]
+#[allow(dead_code, unused_variables)]
 unsafe extern "system" fn on_tls_callback(h: c::LPVOID,
                                           dwReason: c::DWORD,
                                           pv: c::LPVOID) {

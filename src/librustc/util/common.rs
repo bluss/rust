@@ -12,17 +12,12 @@
 
 use std::cell::{RefCell, Cell};
 use std::collections::HashMap;
-use std::collections::hash_state::HashState;
 use std::ffi::CString;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, BuildHasher};
 use std::iter::repeat;
 use std::path::Path;
-use std::time::Instant;
-
-use rustc_front::hir;
-use rustc_front::intravisit;
-use rustc_front::intravisit::Visitor;
+use std::time::{Duration, Instant};
 
 // The name of the associated type for `Fn` return types
 pub const FN_OUTPUT_NAME: &'static str = "Output";
@@ -48,12 +43,6 @@ pub fn time<T, F>(do_it: bool, what: &str, f: F) -> T where
     let rv = f();
     let dur = start.elapsed();
 
-    // Hack up our own formatting for the duration to make it easier for scripts
-    // to parse (always use the same number of decimal places and the same unit).
-    const NANOS_PER_SEC: f64 = 1_000_000_000.0;
-    let secs = dur.as_secs() as f64;
-    let secs = secs + dur.subsec_nanos() as f64 / NANOS_PER_SEC;
-
     let mem_string = match get_resident() {
         Some(n) => {
             let mb = n as f64 / 1_000_000.0;
@@ -61,11 +50,54 @@ pub fn time<T, F>(do_it: bool, what: &str, f: F) -> T where
         }
         None => "".to_owned(),
     };
-    println!("{}time: {:.3}{}\t{}", repeat("  ").take(old).collect::<String>(),
-             secs, mem_string, what);
+    println!("{}time: {}{}\t{}",
+             repeat("  ").take(old).collect::<String>(),
+             duration_to_secs_str(dur),
+             mem_string,
+             what);
 
     DEPTH.with(|slot| slot.set(old));
 
+    rv
+}
+
+// Hack up our own formatting for the duration to make it easier for scripts
+// to parse (always use the same number of decimal places and the same unit).
+pub fn duration_to_secs_str(dur: Duration) -> String {
+    const NANOS_PER_SEC: f64 = 1_000_000_000.0;
+    let secs = dur.as_secs() as f64 +
+               dur.subsec_nanos() as f64 / NANOS_PER_SEC;
+
+    format!("{:.3}", secs)
+}
+
+pub fn to_readable_str(mut val: usize) -> String {
+    let mut groups = vec![];
+    loop {
+        let group = val % 1000;
+
+        val /= 1000;
+
+        if val == 0 {
+            groups.push(format!("{}", group));
+            break
+        } else {
+            groups.push(format!("{:03}", group));
+        }
+    }
+
+    groups.reverse();
+
+    groups.join("_")
+}
+
+pub fn record_time<T, F>(accu: &Cell<Duration>, f: F) -> T where
+    F: FnOnce() -> T,
+{
+    let start = Instant::now();
+    let rv = f();
+    let duration = start.elapsed();
+    accu.set(duration + accu.get());
     rv
 }
 
@@ -150,57 +182,6 @@ pub fn indenter() -> Indenter {
     Indenter { _cannot_construct_outside_of_this_module: () }
 }
 
-struct LoopQueryVisitor<P> where P: FnMut(&hir::Expr_) -> bool {
-    p: P,
-    flag: bool,
-}
-
-impl<'v, P> Visitor<'v> for LoopQueryVisitor<P> where P: FnMut(&hir::Expr_) -> bool {
-    fn visit_expr(&mut self, e: &hir::Expr) {
-        self.flag |= (self.p)(&e.node);
-        match e.node {
-          // Skip inner loops, since a break in the inner loop isn't a
-          // break inside the outer loop
-          hir::ExprLoop(..) | hir::ExprWhile(..) => {}
-          _ => intravisit::walk_expr(self, e)
-        }
-    }
-}
-
-// Takes a predicate p, returns true iff p is true for any subexpressions
-// of b -- skipping any inner loops (loop, while, loop_body)
-pub fn loop_query<P>(b: &hir::Block, p: P) -> bool where P: FnMut(&hir::Expr_) -> bool {
-    let mut v = LoopQueryVisitor {
-        p: p,
-        flag: false,
-    };
-    intravisit::walk_block(&mut v, b);
-    return v.flag;
-}
-
-struct BlockQueryVisitor<P> where P: FnMut(&hir::Expr) -> bool {
-    p: P,
-    flag: bool,
-}
-
-impl<'v, P> Visitor<'v> for BlockQueryVisitor<P> where P: FnMut(&hir::Expr) -> bool {
-    fn visit_expr(&mut self, e: &hir::Expr) {
-        self.flag |= (self.p)(e);
-        intravisit::walk_expr(self, e)
-    }
-}
-
-// Takes a predicate p, returns true iff p is true for any subexpressions
-// of b -- skipping any inner loops (loop, while, loop_body)
-pub fn block_query<P>(b: &hir::Block, p: P) -> bool where P: FnMut(&hir::Expr) -> bool {
-    let mut v = BlockQueryVisitor {
-        p: p,
-        flag: false,
-    };
-    intravisit::walk_block(&mut v, &*b);
-    return v.flag;
-}
-
 pub trait MemoizationMap {
     type Key: Clone;
     type Value: Clone;
@@ -217,7 +198,7 @@ pub trait MemoizationMap {
 }
 
 impl<K, V, S> MemoizationMap for RefCell<HashMap<K,V,S>>
-    where K: Hash+Eq+Clone, V: Clone, S: HashState
+    where K: Hash+Eq+Clone, V: Clone, S: BuildHasher
 {
     type Key = K;
     type Value = V;
@@ -247,4 +228,18 @@ pub fn path2cstr(p: &Path) -> CString {
 #[cfg(windows)]
 pub fn path2cstr(p: &Path) -> CString {
     CString::new(p.to_str().unwrap()).unwrap()
+}
+
+
+#[test]
+fn test_to_readable_str() {
+    assert_eq!("0", to_readable_str(0));
+    assert_eq!("1", to_readable_str(1));
+    assert_eq!("99", to_readable_str(99));
+    assert_eq!("999", to_readable_str(999));
+    assert_eq!("1_000", to_readable_str(1_000));
+    assert_eq!("1_001", to_readable_str(1_001));
+    assert_eq!("999_999", to_readable_str(999_999));
+    assert_eq!("1_000_000", to_readable_str(1_000_000));
+    assert_eq!("1_234_567", to_readable_str(1_234_567));
 }

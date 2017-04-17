@@ -15,6 +15,7 @@
 #![crate_type = "rlib"]
 #![no_std]
 #![unstable(feature = "rustc_private", issue = "27812")]
+#![cfg_attr(not(stage0), deny(warnings))]
 
 //! A typesafe bitmask flag generator.
 
@@ -200,7 +201,7 @@ macro_rules! bitflags {
                 !(*self & other).is_empty()
             }
 
-            /// Returns `true` all of the flags in `other` are contained within `self`.
+            /// Returns `true` if all of the flags in `other` are contained within `self`.
             #[inline]
             pub fn contains(&self, other: $BitFlags) -> bool {
                 (*self & other) == other
@@ -290,8 +291,9 @@ macro_rules! bitflags {
 #[cfg(test)]
 #[allow(non_upper_case_globals)]
 mod tests {
-    use std::hash::{Hasher, Hash, SipHasher};
-    use std::option::Option::{Some, None};
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    use std::option::Option::{None, Some};
 
     bitflags! {
         #[doc = "> The first principle is that you must not fool yourself — and"]
@@ -491,7 +493,7 @@ mod tests {
     }
 
     fn hash<T: Hash>(t: &T) -> u64 {
-        let mut s = SipHasher::new();
+        let mut s = DefaultHasher::new();
         t.hash(&mut s);
         s.finish()
     }

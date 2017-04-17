@@ -28,7 +28,7 @@ code. You can use documentation comments for this purpose:
 /// let five = Rc::new(5);
 /// ```
 pub fn new(value: T) -> Rc<T> {
-    // implementation goes here
+    // Implementation goes here.
 }
 ```
 
@@ -76,7 +76,7 @@ This [unfortunate error](https://github.com/rust-lang/rust/issues/22547) is
 correct; documentation comments apply to the thing after them, and there's
 nothing after that last comment.
 
-[rc-new]: https://doc.rust-lang.org/nightly/std/rc/struct.Rc.html#method.new
+[rc-new]: ../std/rc/struct.Rc.html#method.new
 
 ### Writing documentation comments
 
@@ -118,7 +118,7 @@ least. If your function has a non-trivial contract like this, that is
 detected/enforced by panics, documenting it is very important.
 
 ```rust
-/// # Failures
+/// # Errors
 # fn foo() {}
 ```
 
@@ -319,7 +319,7 @@ our source code:
 ```text
     First, we set `x` to five:
 
-    ```text
+    ```rust
     let x = 5;
     # let y = 6;
     # println!("{}", x + y);
@@ -327,7 +327,7 @@ our source code:
 
     Next, we set `y` to six:
 
-    ```text
+    ```rust
     # let x = 5;
     let y = 6;
     # println!("{}", x + y);
@@ -335,7 +335,7 @@ our source code:
 
     Finally, we print the sum of `x` and `y`:
 
-    ```text
+    ```rust
     # let x = 5;
     # let y = 6;
     println!("{}", x + y);
@@ -362,7 +362,7 @@ Here’s an example of documenting a macro:
 /// # }
 /// ```
 ///
-/// ```should_panic
+/// ```rust,should_panic
 /// # #[macro_use] extern crate foo;
 /// # fn main() {
 /// panic_unless!(true == false, “I’m broken.”);
@@ -429,7 +429,7 @@ There are a few more annotations that are useful to help `rustdoc` do the right
 thing when testing your code:
 
 ```rust
-/// ```ignore
+/// ```rust,ignore
 /// fn foo() {
 /// ```
 # fn foo() {}
@@ -441,7 +441,7 @@ with `text` if it's not code, or using `#`s to get a working example that
 only shows the part you care about.
 
 ```rust
-/// ```should_panic
+/// ```rust,should_panic
 /// assert!(false);
 /// ```
 # fn foo() {}
@@ -451,7 +451,7 @@ only shows the part you care about.
 not actually pass as a test.
 
 ```rust
-/// ```no_run
+/// ```rust,no_run
 /// loop {
 ///     println!("Hello, world");
 /// }
@@ -483,7 +483,18 @@ you have a module in `foo.rs`, you'll often open its code and see this:
 ```rust
 //! A module for using `foo`s.
 //!
-//! The `foo` module contains a lot of useful functionality blah blah blah
+//! The `foo` module contains a lot of useful functionality blah blah blah...
+```
+
+### Crate documentation
+
+Crates can be documented by placing an inner doc comment (`//!`) at the
+beginning of the crate root, aka `lib.rs`:
+
+```rust
+//! This is documentation for the `foo` crate.
+//!
+//! The foo crate is meant to be used for bar.
 ```
 
 ### Documentation comment style
@@ -563,7 +574,7 @@ can be useful when changing some options, or when writing a macro.
 
 `rustdoc` will show the documentation for a public re-export in both places:
 
-```ignore
+```rust,ignore
 extern crate foo;
 
 pub use foo::bar;
@@ -575,7 +586,7 @@ documentation in both places.
 
 This behavior can be suppressed with `no_inline`:
 
-```ignore
+```rust,ignore
 extern crate foo;
 
 #[doc(no_inline)]

@@ -29,11 +29,17 @@
        html_playground_url = "https://play.rust-lang.org/",
        issue_tracker_base_url = "https://github.com/rust-lang/rust/issues/",
        test(no_crate_inject, attr(allow(unused_variables), deny(warnings))))]
+#![cfg_attr(not(stage0), deny(warnings))]
 #![no_std]
 
+#![feature(char_escape_debug)]
 #![feature(core_char_ext)]
+#![feature(decode_utf8)]
+#![feature(fused)]
 #![feature(lang_items)]
 #![feature(staged_api)]
+#![feature(try_from)]
+#![feature(unicode)]
 
 mod tables;
 mod u_str;
@@ -41,12 +47,17 @@ pub mod char;
 
 #[allow(deprecated)]
 pub mod str {
-    pub use u_str::{UnicodeStr, SplitWhitespace};
-    pub use u_str::{utf8_char_width, is_utf16};
-    pub use u_str::{Utf16Encoder};
+    pub use u_str::{SplitWhitespace, UnicodeStr};
+    pub use u_str::{is_utf16, utf8_char_width};
+    pub use u_str::Utf16Encoder;
 }
 
 // For use in libcollections, not re-exported in libstd.
 pub mod derived_property {
-    pub use tables::derived_property::{Cased, Case_Ignorable};
+    pub use tables::derived_property::{Case_Ignorable, Cased};
+}
+
+// For use in libsyntax
+pub mod property {
+    pub use tables::property::Pattern_White_Space;
 }

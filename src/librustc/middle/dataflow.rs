@@ -14,20 +14,19 @@
 //! and thus uses bitvectors. Your job is simply to specify the so-called
 //! GEN and KILL bits for each expression.
 
-use middle::cfg;
-use middle::cfg::CFGIndex;
-use middle::ty;
+use cfg;
+use cfg::CFGIndex;
+use ty::TyCtxt;
 use std::io;
 use std::mem;
 use std::usize;
 use syntax::ast;
-use syntax::ast_util::IdRange;
 use syntax::print::pp;
 use syntax::print::pprust::PrintState;
 use util::nodemap::NodeMap;
-use rustc_front::hir;
-use rustc_front::intravisit;
-use rustc_front::print::pprust;
+use hir;
+use hir::intravisit::{self, IdRange};
+use hir::print as pprust;
 
 
 #[derive(Copy, Clone, Debug)]
@@ -38,7 +37,7 @@ pub enum EntryOrExit {
 
 #[derive(Clone)]
 pub struct DataFlowContext<'a, 'tcx: 'a, O> {
-    tcx: &'a ty::ctxt<'tcx>,
+    tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
     /// a name for the analysis using this dataflow instance
     analysis_name: &'static str,
@@ -113,10 +112,10 @@ impl<'a, 'tcx, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, 'tcx, O
            ps: &mut pprust::State,
            node: pprust::AnnNode) -> io::Result<()> {
         let id = match node {
-            pprust::NodeName(_) => 0,
+            pprust::NodeName(_) => ast::CRATE_NODE_ID,
             pprust::NodeExpr(expr) => expr.id,
             pprust::NodeBlock(blk) => blk.id,
-            pprust::NodeItem(_) | pprust::NodeSubItem(_) => 0,
+            pprust::NodeItem(_) | pprust::NodeSubItem(_) => ast::CRATE_NODE_ID,
             pprust::NodePat(pat) => pat.id
         };
 
@@ -152,10 +151,10 @@ impl<'a, 'tcx, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, 'tcx, O
                 "".to_string()
             };
 
-            try!(ps.synth_comment(
+            ps.synth_comment(
                 format!("id {}: {}{}{}{}", id, entry_str,
-                        gens_str, action_kills_str, scope_kills_str)));
-            try!(pp::space(&mut ps.s));
+                        gens_str, action_kills_str, scope_kills_str))?;
+            pp::space(&mut ps.s)?;
         }
         Ok(())
     }
@@ -169,9 +168,8 @@ fn build_nodeid_to_index(decl: Option<&hir::FnDecl>,
     // into cfg itself?  i.e. introduce a fn-based flow-graph in
     // addition to the current block-based flow-graph, rather than
     // have to put traversals like this here?
-    match decl {
-        None => {}
-        Some(decl) => add_entries_from_fn_decl(&mut index, decl, cfg.entry)
+    if let Some(decl) = decl {
+        add_entries_from_fn_decl(&mut index, decl, cfg.entry);
     }
 
     cfg.graph.each_node(|node_idx, node| {
@@ -195,6 +193,10 @@ fn build_nodeid_to_index(decl: Option<&hir::FnDecl>,
         let mut formals = Formals { entry: entry, index: index };
         intravisit::walk_fn_decl(&mut formals, decl);
         impl<'a, 'v> intravisit::Visitor<'v> for Formals<'a> {
+            fn nested_visit_map<'this>(&'this mut self) -> intravisit::NestedVisitorMap<'this, 'v> {
+                panic!("should not encounter fn bodies or items")
+            }
+
             fn visit_pat(&mut self, p: &hir::Pat) {
                 self.index.entry(p.id).or_insert(vec![]).push(self.entry);
                 intravisit::walk_pat(self, p)
@@ -223,7 +225,7 @@ pub enum KillFrom {
 }
 
 impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
-    pub fn new(tcx: &'a ty::ctxt<'tcx>,
+    pub fn new(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                analysis_name: &'static str,
                decl: Option<&hir::FnDecl>,
                cfg: &cfg::CFG,
@@ -489,7 +491,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
                 let bits = &mut self.scope_kills[start.. end];
                 debug!("{} add_kills_from_flow_exits flow_exit={:?} bits={} [before]",
                        self.analysis_name, flow_exit, mut_bits_to_string(bits));
-                bits.clone_from_slice(&orig_kills[..]);
+                bits.copy_from_slice(&orig_kills[..]);
                 debug!("{} add_kills_from_flow_exits flow_exit={:?} bits={} [after]",
                        self.analysis_name, flow_exit, mut_bits_to_string(bits));
             }
@@ -500,7 +502,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
 
 impl<'a, 'tcx, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, 'tcx, O> {
 //                                ^^^^^^^^^^^^^ only needed for pretty printing
-    pub fn propagate(&mut self, cfg: &cfg::CFG, blk: &hir::Block) {
+    pub fn propagate(&mut self, cfg: &cfg::CFG, body: &hir::Expr) {
         //! Performs the data flow analysis.
 
         if self.bits_per_id == 0 {
@@ -526,18 +528,17 @@ impl<'a, 'tcx, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, 'tcx, O> {
         debug!("Dataflow result for {}:", self.analysis_name);
         debug!("{}", {
             let mut v = Vec::new();
-            self.pretty_print_to(box &mut v, blk).unwrap();
-            println!("{}", String::from_utf8(v).unwrap());
-            ""
+            self.pretty_print_to(box &mut v, body).unwrap();
+            String::from_utf8(v).unwrap()
         });
     }
 
     fn pretty_print_to<'b>(&self, wr: Box<io::Write + 'b>,
-                           blk: &hir::Block) -> io::Result<()> {
+                           body: &hir::Expr) -> io::Result<()> {
         let mut ps = pprust::rust_printer_annotated(wr, self, None);
-        try!(ps.cbox(pprust::indent_unit));
-        try!(ps.ibox(0));
-        try!(ps.print_block(blk));
+        ps.cbox(pprust::indent_unit)?;
+        ps.ibox(0)?;
+        ps.print_expr(body)?;
         pp::eof(&mut ps.s)
     }
 }
@@ -557,7 +558,7 @@ impl<'a, 'b, 'tcx, O:DataFlowOperator> PropagationContext<'a, 'b, 'tcx, O> {
             let (start, end) = self.dfcx.compute_id_range(node_index);
 
             // Initialize local bitvector with state on-entry.
-            in_out.clone_from_slice(&self.dfcx.on_entry[start.. end]);
+            in_out.copy_from_slice(&self.dfcx.on_entry[start.. end]);
 
             // Compute state on-exit by applying transfer function to
             // state on-entry.
@@ -654,7 +655,7 @@ fn set_bit(words: &mut [usize], bit: usize) -> bool {
     let word = bit / usize_bits;
     let bit_in_word = bit % usize_bits;
     let bit_mask = 1 << bit_in_word;
-    debug!("word={} bit_in_word={} bit_mask={}", word, bit_in_word, word);
+    debug!("word={} bit_in_word={} bit_mask={}", word, bit_in_word, bit_mask);
     let oldv = words[word];
     let newv = oldv | bit_mask;
     words[word] = newv;
@@ -662,8 +663,8 @@ fn set_bit(words: &mut [usize], bit: usize) -> bool {
 }
 
 fn bit_str(bit: usize) -> String {
-    let byte = bit >> 8;
-    let lobits = 1 << (bit & 0xFF);
+    let byte = bit >> 3;
+    let lobits = 1 << (bit & 0b111);
     format!("[{}:{}-{:02x}]", bit, byte, lobits)
 }
 

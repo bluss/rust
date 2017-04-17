@@ -11,7 +11,7 @@
 // Test that when a trait impl changes, fns whose body uses that trait
 // must also be recompiled.
 
-// compile-flags: -Z incr-comp
+// compile-flags: -Z query-dep-graph
 
 #![feature(rustc_attrs)]
 #![allow(warnings)]
@@ -40,9 +40,8 @@ mod y {
         char::method('a');
     }
 
-    // FIXME(#30741) tcx fulfillment cache not tracked
-    #[rustc_then_this_would_need(TypeckItemBody)] //~ ERROR no path
-    #[rustc_then_this_would_need(TransCrateItem)] //~ ERROR no path
+    #[rustc_then_this_would_need(TypeckItemBody)] //~ ERROR OK
+    #[rustc_then_this_would_need(TransCrateItem)] //~ ERROR OK
     pub fn take_foo_with_char() {
         take_foo::<char>('a');
     }
@@ -53,9 +52,8 @@ mod y {
         u32::method(22);
     }
 
-    // FIXME(#30741) tcx fulfillment cache not tracked
-    #[rustc_then_this_would_need(TypeckItemBody)] //~ ERROR no path
-    #[rustc_then_this_would_need(TransCrateItem)] //~ ERROR no path
+    #[rustc_then_this_would_need(TypeckItemBody)] //~ ERROR OK
+    #[rustc_then_this_would_need(TransCrateItem)] //~ ERROR OK
     pub fn take_foo_with_u32() {
         take_foo::<u32>(22);
     }

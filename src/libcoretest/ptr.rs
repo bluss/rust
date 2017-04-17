@@ -171,3 +171,21 @@ fn test_unsized_unique() {
     let zs: &mut [i32] = &mut [1, 2, 3];
     assert!(ys == zs);
 }
+
+#[test]
+#[allow(warnings)]
+// Have a symbol for the test below. It doesn’t need to be an actual variadic function, match the
+// ABI, or even point to an actual executable code, because the function itself is never invoked.
+#[no_mangle]
+pub fn test_variadic_fnptr() {
+    use core::hash::{Hash, SipHasher};
+    extern {
+        fn test_variadic_fnptr(_: u64, ...) -> f64;
+    }
+    let p: unsafe extern fn(u64, ...) -> f64 = test_variadic_fnptr;
+    let q = p.clone();
+    assert_eq!(p, q);
+    assert!(!(p < q));
+    let mut s = SipHasher::new();
+    assert_eq!(p.hash(&mut s), q.hash(&mut s));
+}

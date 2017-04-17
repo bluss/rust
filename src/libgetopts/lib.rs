@@ -91,12 +91,6 @@
 
 #![deny(missing_docs)]
 #![feature(staged_api)]
-#![feature(str_char)]
-#![cfg_attr(test, feature(rustc_private))]
-
-#[cfg(test)]
-#[macro_use]
-extern crate log;
 
 use self::Name::*;
 use self::HasArg::*;
@@ -228,7 +222,7 @@ pub type Result = result::Result<Matches, Fail>;
 impl Name {
     fn from_str(nm: &str) -> Name {
         if nm.len() == 1 {
-            Short(nm.char_at(0))
+            Short(nm.chars().next().unwrap())
         } else {
             Long(nm.to_owned())
         }
@@ -266,7 +260,7 @@ impl OptGroup {
             }
             (1, 0) => {
                 Opt {
-                    name: Short(short_name.char_at(0)),
+                    name: Short(short_name.chars().next().unwrap()),
                     hasarg: hasarg,
                     occur: occur,
                     aliases: Vec::new(),
@@ -278,14 +272,14 @@ impl OptGroup {
                     hasarg: hasarg,
                     occur: occur,
                     aliases: vec![Opt {
-                                      name: Short(short_name.char_at(0)),
+                                      name: Short(short_name.chars().next().unwrap()),
                                       hasarg: hasarg,
                                       occur: occur,
                                       aliases: Vec::new(),
                                   }],
                 }
             }
-            (_, _) => panic!("something is wrong with the long-form opt"),
+            _ => panic!("something is wrong with the long-form opt"),
         }
     }
 }
@@ -331,9 +325,8 @@ impl Matches {
     /// Returns the string argument supplied to one of several matching options or `None`.
     pub fn opts_str(&self, names: &[String]) -> Option<String> {
         for nm in names {
-            match self.opt_val(&nm[..]) {
-                Some(Val(ref s)) => return Some(s.clone()),
-                _ => (),
+            if let Some(Val(ref s)) = self.opt_val(&nm[..]) {
+                  return Some(s.clone())
             }
         }
         None
@@ -605,7 +598,7 @@ pub fn getopts(args: &[String], optgrps: &[OptGroup]) -> Result {
                 let mut j = 1;
                 names = Vec::new();
                 while j < curlen {
-                    let ch = cur.char_at(j);
+                    let ch = cur[j..].chars().next().unwrap();
                     let opt = Short(ch);
 
                     // In a series of potential options (eg. -aheJ), if we
@@ -1545,8 +1538,6 @@ Options:
 
         let generated_usage = usage("Usage: fruits", &optgroups);
 
-        debug!("expected: <<{}>>", expected);
-        debug!("generated: <<{}>>", generated_usage);
         assert_eq!(generated_usage, expected);
     }
 
@@ -1574,8 +1565,6 @@ Options:
 
         let usage = usage("Usage: fruits", &optgroups);
 
-        debug!("expected: <<{}>>", expected);
-        debug!("generated: <<{}>>", usage);
         assert!(usage == expected)
     }
 
@@ -1602,8 +1591,6 @@ Options:
 
         let usage = usage("Usage: fruits", &optgroups);
 
-        debug!("expected: <<{}>>", expected);
-        debug!("generated: <<{}>>", usage);
         assert!(usage == expected)
     }
 
@@ -1618,15 +1605,13 @@ Options:
         let expected = "Usage: fruits -b VAL [-a VAL] [-k] [-p [VAL]] [-l VAL]..".to_string();
         let generated_usage = short_usage("fruits", &optgroups);
 
-        debug!("expected: <<{}>>", expected);
-        debug!("generated: <<{}>>", generated_usage);
         assert_eq!(generated_usage, expected);
     }
 
     #[test]
     fn test_args_with_equals() {
-        let args = vec!("--one".to_string(), "A=B".to_string(),
-                        "--two=C=D".to_string());
+        let args = vec!["--one".to_string(), "A=B".to_string(),
+                        "--two=C=D".to_string()];
         let opts = vec![optopt("o", "one", "One", "INFO"),
                         optopt("t", "two", "Two", "INFO")];
         let matches = &match getopts(&args, &opts) {

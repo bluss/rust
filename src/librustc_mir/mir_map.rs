@@ -16,225 +16,247 @@
 //! - `#[rustc_mir(graphviz="file.gv")]`
 //! - `#[rustc_mir(pretty="file.mir")]`
 
-extern crate syntax;
-extern crate rustc;
-extern crate rustc_front;
-
 use build;
-use graphviz;
-use pretty;
-use transform::*;
 use rustc::dep_graph::DepNode;
-use rustc::mir::repr::Mir;
+use rustc::hir::def_id::DefId;
+use rustc::mir::Mir;
+use rustc::mir::transform::MirSource;
+use rustc::mir::visit::MutVisitor;
+use pretty;
 use hair::cx::Cx;
-use std::fs::File;
 
-use self::rustc::middle::infer;
-use self::rustc::middle::region::CodeExtentData;
-use self::rustc::middle::ty::{self, Ty};
-use self::rustc::util::common::ErrorReported;
-use self::rustc::util::nodemap::NodeMap;
-use self::rustc_front::hir;
-use self::rustc_front::intravisit::{self, Visitor};
-use self::syntax::ast;
-use self::syntax::attr::AttrMetaMethods;
-use self::syntax::codemap::Span;
+use rustc::infer::InferCtxtBuilder;
+use rustc::traits::Reveal;
+use rustc::ty::{self, Ty, TyCtxt};
+use rustc::ty::subst::Substs;
+use rustc::hir;
+use rustc::hir::intravisit::{self, FnKind, Visitor, NestedVisitorMap};
+use syntax::abi::Abi;
+use syntax::ast;
+use syntax_pos::Span;
 
-pub type MirMap<'tcx> = NodeMap<Mir<'tcx>>;
+use std::mem;
 
-pub fn build_mir_for_crate<'tcx>(tcx: &ty::ctxt<'tcx>) -> MirMap<'tcx> {
-    let mut map = NodeMap();
-    {
-        let mut dump = OuterDump {
-            tcx: tcx,
-            map: &mut map,
-        };
-        tcx.visit_all_items_in_krate(DepNode::MirMapConstruction, &mut dump);
+pub fn build_mir_for_crate<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>) {
+    tcx.visit_all_item_likes_in_krate(DepNode::Mir, &mut BuildMir {
+        tcx: tcx
+    }.as_deep_visitor());
+}
+
+/// A pass to lift all the types and substitutions in a Mir
+/// to the global tcx. Sadly, we don't have a "folder" that
+/// can change 'tcx so we have to transmute afterwards.
+struct GlobalizeMir<'a, 'gcx: 'a> {
+    tcx: TyCtxt<'a, 'gcx, 'gcx>,
+    span: Span
+}
+
+impl<'a, 'gcx: 'tcx, 'tcx> MutVisitor<'tcx> for GlobalizeMir<'a, 'gcx> {
+    fn visit_ty(&mut self, ty: &mut Ty<'tcx>) {
+        if let Some(lifted) = self.tcx.lift(ty) {
+            *ty = lifted;
+        } else {
+            span_bug!(self.span,
+                      "found type `{:?}` with inference types/regions in MIR",
+                      ty);
+        }
     }
-    map
+
+    fn visit_substs(&mut self, substs: &mut &'tcx Substs<'tcx>) {
+        if let Some(lifted) = self.tcx.lift(substs) {
+            *substs = lifted;
+        } else {
+            span_bug!(self.span,
+                      "found substs `{:?}` with inference types/regions in MIR",
+                      substs);
+        }
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////
-// OuterDump -- walks a crate, looking for fn items and methods to build MIR from
+// BuildMir -- walks a crate, looking for fn items and methods to build MIR from
 
-struct OuterDump<'a, 'tcx: 'a> {
-    tcx: &'a ty::ctxt<'tcx>,
-    map: &'a mut MirMap<'tcx>,
+struct BuildMir<'a, 'tcx: 'a> {
+    tcx: TyCtxt<'a, 'tcx, 'tcx>
 }
 
-impl<'a, 'tcx> OuterDump<'a, 'tcx> {
-    fn visit_mir<OP>(&mut self, attributes: &'a [ast::Attribute], mut walk_op: OP)
-        where OP: for<'m> FnMut(&mut InnerDump<'a, 'm, 'tcx>)
-    {
-        let mut closure_dump = InnerDump {
-            tcx: self.tcx,
-            attr: None,
-            map: &mut *self.map,
-        };
-        for attr in attributes {
-            if attr.check_name("rustc_mir") {
-                closure_dump.attr = Some(attr);
-            }
+/// Helper type of a temporary returned by BuildMir::cx(...).
+/// Necessary because we can't write the following bound:
+/// F: for<'b, 'tcx> where 'gcx: 'tcx FnOnce(Cx<'b, 'gcx, 'tcx>).
+struct CxBuilder<'a, 'gcx: 'a+'tcx, 'tcx: 'a> {
+    src: MirSource,
+    def_id: DefId,
+    infcx: InferCtxtBuilder<'a, 'gcx, 'tcx>
+}
+
+impl<'a, 'gcx, 'tcx> BuildMir<'a, 'gcx> {
+    fn cx<'b>(&'b mut self, src: MirSource) -> CxBuilder<'b, 'gcx, 'tcx> {
+        let param_env = ty::ParameterEnvironment::for_item(self.tcx, src.item_id());
+        let def_id = self.tcx.map.local_def_id(src.item_id());
+        CxBuilder {
+            src: src,
+            infcx: self.tcx.infer_ctxt(None, Some(param_env), Reveal::NotSpecializable),
+            def_id: def_id
         }
-        walk_op(&mut closure_dump);
     }
 }
 
+impl<'a, 'gcx, 'tcx> CxBuilder<'a, 'gcx, 'tcx> {
+    fn build<F>(&'tcx mut self, f: F)
+        where F: for<'b> FnOnce(Cx<'b, 'gcx, 'tcx>) -> Mir<'tcx>
+    {
+        let (src, def_id) = (self.src, self.def_id);
+        self.infcx.enter(|infcx| {
+            let mut mir = f(Cx::new(&infcx, src));
 
-impl<'a, 'tcx> Visitor<'tcx> for OuterDump<'a, 'tcx> {
+            // Convert the Mir to global types.
+            let tcx = infcx.tcx.global_tcx();
+            let mut globalizer = GlobalizeMir {
+                tcx: tcx,
+                span: mir.span
+            };
+            globalizer.visit_mir(&mut mir);
+            let mir = unsafe {
+                mem::transmute::<Mir, Mir<'gcx>>(mir)
+            };
+
+            pretty::dump_mir(tcx, "mir_map", &0, src, &mir);
+
+            let mir = tcx.alloc_mir(mir);
+            assert!(tcx.mir_map.borrow_mut().insert(def_id, mir).is_none());
+        });
+    }
+}
+
+impl<'a, 'gcx> BuildMir<'a, 'gcx> {
+    fn build_const_integer(&mut self, expr: &'gcx hir::Expr) {
+        // FIXME(eddyb) Closures should have separate
+        // function definition IDs and expression IDs.
+        // Type-checking should not let closures get
+        // this far in an integer constant position.
+        if let hir::ExprClosure(..) = expr.node {
+            return;
+        }
+        self.cx(MirSource::Const(expr.id)).build(|cx| {
+            build::construct_const(cx, expr.id, expr)
+        });
+    }
+}
+
+impl<'a, 'tcx> Visitor<'tcx> for BuildMir<'a, 'tcx> {
+    fn nested_visit_map<'this>(&'this mut self) -> NestedVisitorMap<'this, 'tcx> {
+        NestedVisitorMap::OnlyBodies(&self.tcx.map)
+    }
+
+    // Const and static items.
     fn visit_item(&mut self, item: &'tcx hir::Item) {
-        self.visit_mir(&item.attrs, |c| intravisit::walk_item(c, item));
+        match item.node {
+            hir::ItemConst(_, ref expr) => {
+                self.cx(MirSource::Const(item.id)).build(|cx| {
+                    build::construct_const(cx, item.id, expr)
+                });
+            }
+            hir::ItemStatic(_, m, ref expr) => {
+                self.cx(MirSource::Static(item.id, m)).build(|cx| {
+                    build::construct_const(cx, item.id, expr)
+                });
+            }
+            _ => {}
+        }
         intravisit::walk_item(self, item);
     }
 
-    fn visit_trait_item(&mut self, trait_item: &'tcx hir::TraitItem) {
-        match trait_item.node {
-            hir::MethodTraitItem(_, Some(_)) => {
-                self.visit_mir(&trait_item.attrs, |c| intravisit::walk_trait_item(c, trait_item));
-            }
-            hir::MethodTraitItem(_, None) |
-            hir::ConstTraitItem(..) |
-            hir::TypeTraitItem(..) => {}
+    // Trait associated const defaults.
+    fn visit_trait_item(&mut self, item: &'tcx hir::TraitItem) {
+        if let hir::ConstTraitItem(_, Some(ref expr)) = item.node {
+            self.cx(MirSource::Const(item.id)).build(|cx| {
+                build::construct_const(cx, item.id, expr)
+            });
         }
-        intravisit::walk_trait_item(self, trait_item);
+        intravisit::walk_trait_item(self, item);
     }
 
-    fn visit_impl_item(&mut self, impl_item: &'tcx hir::ImplItem) {
-        match impl_item.node {
-            hir::ImplItemKind::Method(..) => {
-                self.visit_mir(&impl_item.attrs, |c| intravisit::walk_impl_item(c, impl_item));
-            }
-            hir::ImplItemKind::Const(..) | hir::ImplItemKind::Type(..) => {}
+    // Impl associated const.
+    fn visit_impl_item(&mut self, item: &'tcx hir::ImplItem) {
+        if let hir::ImplItemKind::Const(_, ref expr) = item.node {
+            self.cx(MirSource::Const(item.id)).build(|cx| {
+                build::construct_const(cx, item.id, expr)
+            });
         }
-        intravisit::walk_impl_item(self, impl_item);
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////
-// InnerDump -- dumps MIR for a single fn and its contained closures
-
-struct InnerDump<'a, 'm, 'tcx: 'a + 'm> {
-    tcx: &'a ty::ctxt<'tcx>,
-    map: &'m mut MirMap<'tcx>,
-    attr: Option<&'a ast::Attribute>,
-}
-
-impl<'a, 'm, 'tcx> Visitor<'tcx> for InnerDump<'a,'m,'tcx> {
-    fn visit_trait_item(&mut self, _: &'tcx hir::TraitItem) {
-        // ignore methods; the outer dump will call us for them independently
+        intravisit::walk_impl_item(self, item);
     }
 
-    fn visit_impl_item(&mut self, _: &'tcx hir::ImplItem) {
-        // ignore methods; the outer dump will call us for them independently
+    // Repeat counts, i.e. [expr; constant].
+    fn visit_expr(&mut self, expr: &'tcx hir::Expr) {
+        if let hir::ExprRepeat(_, ref count) = expr.node {
+            self.build_const_integer(count);
+        }
+        intravisit::walk_expr(self, expr);
+    }
+
+    // Array lengths, i.e. [T; constant].
+    fn visit_ty(&mut self, ty: &'tcx hir::Ty) {
+        if let hir::TyArray(_, ref length) = ty.node {
+            self.build_const_integer(length);
+        }
+        intravisit::walk_ty(self, ty);
+    }
+
+    // Enum variant discriminant values.
+    fn visit_variant(&mut self, v: &'tcx hir::Variant,
+                     g: &'tcx hir::Generics, item_id: ast::NodeId) {
+        if let Some(ref expr) = v.node.disr_expr {
+            self.build_const_integer(expr);
+        }
+        intravisit::walk_variant(self, v, g, item_id);
     }
 
     fn visit_fn(&mut self,
-                fk: intravisit::FnKind<'tcx>,
+                fk: FnKind<'tcx>,
                 decl: &'tcx hir::FnDecl,
-                body: &'tcx hir::Block,
+                body_id: hir::ExprId,
                 span: Span,
                 id: ast::NodeId) {
-        let (prefix, implicit_arg_tys) = match fk {
-            intravisit::FnKind::Closure =>
-                (format!("{}-", id), vec![closure_self_ty(&self.tcx, id, body.id)]),
-            _ =>
-                (format!(""), vec![]),
+        // fetch the fully liberated fn signature (that is, all bound
+        // types/lifetimes replaced)
+        let fn_sig = match self.tcx.tables().liberated_fn_sigs.get(&id) {
+            Some(f) => f.clone(),
+            None => {
+                span_bug!(span, "no liberated fn sig for {:?}", id);
+            }
         };
 
-        let param_env = ty::ParameterEnvironment::for_item(self.tcx, id);
+        let (abi, implicit_argument) = if let FnKind::Closure(..) = fk {
+            (Abi::Rust, Some((closure_self_ty(self.tcx, id, body_id.node_id()), None)))
+        } else {
+            let def_id = self.tcx.map.local_def_id(id);
+            (self.tcx.item_type(def_id).fn_abi(), None)
+        };
 
-        let infcx = infer::new_infer_ctxt(self.tcx, &self.tcx.tables, Some(param_env));
+        let explicit_arguments =
+            decl.inputs
+                .iter()
+                .enumerate()
+                .map(|(index, arg)| {
+                    (fn_sig.inputs[index], Some(&*arg.pat))
+                });
 
-        match build_mir(Cx::new(&infcx), implicit_arg_tys, id, span, decl, body) {
-            Ok(mut mir) => {
-                simplify_cfg::SimplifyCfg::new().run_on_mir(&mut mir);
+        let body = self.tcx.map.expr(body_id);
 
-                let meta_item_list = self.attr
-                                         .iter()
-                                         .flat_map(|a| a.meta_item_list())
-                                         .flat_map(|l| l.iter());
-                for item in meta_item_list {
-                    if item.check_name("graphviz") || item.check_name("pretty") {
-                        match item.value_str() {
-                            Some(s) => {
-                                let filename = format!("{}{}", prefix, s);
-                                let result = File::create(&filename).and_then(|ref mut output| {
-                                    if item.check_name("graphviz") {
-                                        graphviz::write_mir_graphviz(&mir, output)
-                                    } else {
-                                        pretty::write_mir_pretty(&mir, output)
-                                    }
-                                });
+        let arguments = implicit_argument.into_iter().chain(explicit_arguments);
+        self.cx(MirSource::Fn(id)).build(|cx| {
+            build::construct_fn(cx, id, arguments, abi, fn_sig.output, body)
+        });
 
-                                if let Err(e) = result {
-                                    self.tcx.sess.span_fatal(
-                                        item.span,
-                                        &format!("Error writing MIR {} results to `{}`: {}",
-                                                 item.name(), filename, e));
-                                }
-                            }
-                            None => {
-                                self.tcx.sess.span_err(
-                                    item.span,
-                                    &format!("{} attribute requires a path", item.name()));
-                            }
-                        }
-                    }
-                }
-
-                let previous = self.map.insert(id, mir);
-                assert!(previous.is_none());
-            }
-            Err(ErrorReported) => {}
-        }
-
-        intravisit::walk_fn(self, fk, decl, body, span);
+        intravisit::walk_fn(self, fk, decl, body_id, span, id);
     }
 }
 
-fn build_mir<'a,'tcx:'a>(cx: Cx<'a,'tcx>,
-                         implicit_arg_tys: Vec<Ty<'tcx>>,
-                         fn_id: ast::NodeId,
-                         span: Span,
-                         decl: &'tcx hir::FnDecl,
-                         body: &'tcx hir::Block)
-                         -> Result<Mir<'tcx>, ErrorReported> {
-    // fetch the fully liberated fn signature (that is, all bound
-    // types/lifetimes replaced)
-    let fn_sig = match cx.tcx().tables.borrow().liberated_fn_sigs.get(&fn_id) {
-        Some(f) => f.clone(),
-        None => {
-            cx.tcx().sess.span_bug(span,
-                                   &format!("no liberated fn sig for {:?}", fn_id));
-        }
-    };
-
-    let arguments =
-        decl.inputs
-            .iter()
-            .enumerate()
-            .map(|(index, arg)| {
-                (fn_sig.inputs[index], &*arg.pat)
-            })
-            .collect();
-
-    let parameter_scope =
-        cx.tcx().region_maps.lookup_code_extent(
-            CodeExtentData::ParameterScope { fn_id: fn_id, body_id: body.id });
-    Ok(build::construct(cx,
-                        span,
-                        implicit_arg_tys,
-                        arguments,
-                        parameter_scope,
-                        fn_sig.output,
-                        body))
-}
-
-fn closure_self_ty<'a, 'tcx>(tcx: &ty::ctxt<'tcx>,
+fn closure_self_ty<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                              closure_expr_id: ast::NodeId,
                              body_id: ast::NodeId)
                              -> Ty<'tcx> {
-    let closure_ty = tcx.node_id_to_type(closure_expr_id);
+    let closure_ty = tcx.tables().node_id_to_type(closure_expr_id);
 
     // We're just hard-coding the idea that the signature will be
     // &self or &mut self and hence will have a bound region with
@@ -246,15 +268,15 @@ fn closure_self_ty<'a, 'tcx>(tcx: &ty::ctxt<'tcx>,
     let region = tcx.mk_region(region);
 
     match tcx.closure_kind(tcx.map.local_def_id(closure_expr_id)) {
-        ty::ClosureKind::FnClosureKind =>
+        ty::ClosureKind::Fn =>
             tcx.mk_ref(region,
                        ty::TypeAndMut { ty: closure_ty,
                                         mutbl: hir::MutImmutable }),
-        ty::ClosureKind::FnMutClosureKind =>
+        ty::ClosureKind::FnMut =>
             tcx.mk_ref(region,
                        ty::TypeAndMut { ty: closure_ty,
                                         mutbl: hir::MutMutable }),
-        ty::ClosureKind::FnOnceClosureKind =>
+        ty::ClosureKind::FnOnce =>
             closure_ty
     }
 }

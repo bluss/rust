@@ -14,7 +14,6 @@
 
 //! Range syntax.
 
-use core::option::Option::{self, None, Some};
 use core::ops::{RangeFull, Range, RangeTo, RangeFrom};
 
 /// **RangeArgument** is implemented by Rust's built-in range types, produced
@@ -23,6 +22,22 @@ pub trait RangeArgument<T> {
     /// Start index (inclusive)
     ///
     /// Return start value if present, else `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(collections)]
+    /// #![feature(collections_range)]
+    ///
+    /// extern crate collections;
+    ///
+    /// # fn main() {
+    /// use collections::range::RangeArgument;
+    ///
+    /// assert_eq!((..10).start(), None);
+    /// assert_eq!((3..10).start(), Some(&3));
+    /// # }
+    /// ```
     fn start(&self) -> Option<&T> {
         None
     }
@@ -30,11 +45,28 @@ pub trait RangeArgument<T> {
     /// End index (exclusive)
     ///
     /// Return end value if present, else `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// #![feature(collections)]
+    /// #![feature(collections_range)]
+    ///
+    /// extern crate collections;
+    ///
+    /// # fn main() {
+    /// use collections::range::RangeArgument;
+    ///
+    /// assert_eq!((3..).end(), None);
+    /// assert_eq!((3..10).end(), Some(&10));
+    /// # }
+    /// ```
     fn end(&self) -> Option<&T> {
         None
     }
 }
 
+// FIXME add inclusive ranges to RangeArgument
 
 impl<T> RangeArgument<T> for RangeFull {}
 

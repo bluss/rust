@@ -28,26 +28,50 @@
 #![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
       html_root_url = "https://doc.rust-lang.org/nightly/")]
+#![cfg_attr(not(stage0), deny(warnings))]
 
 #![feature(box_syntax)]
+#![feature(const_fn)]
 #![feature(libc)]
 #![feature(rand)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
-#![feature(step_by)]
-#![cfg_attr(test, feature(test, rand))]
+#![cfg_attr(test, feature(rand))]
 
 extern crate syntax;
 extern crate libc;
 extern crate serialize;
-extern crate rustc_llvm;
-extern crate rustc_front;
 #[macro_use] extern crate log;
 
-pub mod abi;
+extern crate serialize as rustc_serialize; // used by deriving
+
 pub mod tempdir;
-pub mod rpath;
-pub mod sha2;
-pub mod svh;
 pub mod target;
 pub mod slice;
+pub mod dynamic_lib;
+
+use serialize::json::{Json, ToJson};
+
+#[derive(Clone, Copy, Debug, PartialEq, Hash, RustcEncodable, RustcDecodable)]
+pub enum PanicStrategy {
+    Unwind,
+    Abort,
+}
+
+impl PanicStrategy {
+    pub fn desc(&self) -> &str {
+        match *self {
+            PanicStrategy::Unwind => "unwind",
+            PanicStrategy::Abort => "abort",
+        }
+    }
+}
+
+impl ToJson for PanicStrategy {
+    fn to_json(&self) -> Json {
+        match *self {
+            PanicStrategy::Abort => "abort".to_json(),
+            PanicStrategy::Unwind => "unwind".to_json(),
+        }
+    }
+}

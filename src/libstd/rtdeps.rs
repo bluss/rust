@@ -12,6 +12,8 @@
 //! the standard library This varies per-platform, but these libraries are
 //! necessary for running libstd.
 
+#![cfg(not(cargobuild))]
+
 // LLVM implements the `frem` instruction as a call to `fmod`, which lives in
 // libm. Hence, we must explicitly link to it.
 //
@@ -39,6 +41,12 @@ extern {}
 #[link(name = "pthread")]
 extern {}
 
+#[cfg(target_os = "solaris")]
+#[link(name = "socket")]
+#[link(name = "posix4")]
+#[link(name = "pthread")]
+extern {}
+
 // For PNaCl targets, nacl_io is a Pepper wrapper for some IO functions
 // missing (ie always error) in Newlib.
 #[cfg(all(target_os = "nacl", not(test)))]
@@ -53,4 +61,8 @@ extern {}
 
 #[cfg(target_os = "ios")]
 #[link(name = "System")]
+extern {}
+
+#[cfg(target_os = "haiku")]
+#[link(name = "network")]
 extern {}

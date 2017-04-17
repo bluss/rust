@@ -12,13 +12,10 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use prelude::v1::*;
-
 use io::{self, Error, ErrorKind};
 use sys_common::net as net_imp;
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[allow(deprecated)]
 pub use self::ip::{IpAddr, Ipv4Addr, Ipv6Addr, Ipv6MulticastScope};
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::addr::{SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
@@ -34,10 +31,15 @@ mod addr;
 mod tcp;
 mod udp;
 mod parser;
-#[cfg(test)] mod test;
+#[cfg(test)]
+mod test;
 
-/// Possible values which can be passed to the `shutdown` method of `TcpStream`.
-#[derive(Copy, Clone, PartialEq, Debug)]
+/// Possible values which can be passed to the [`shutdown`] method of
+/// [`TcpStream`].
+///
+/// [`shutdown`]: struct.TcpStream.html#method.shutdown
+/// [`TcpStream`]: struct.TcpStream.html
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Shutdown {
     /// Indicates that the reading portion of this stream/socket should be shut
@@ -75,7 +77,7 @@ fn each_addr<A: ToSocketAddrs, F, T>(addr: A, mut f: F) -> io::Result<T>
     where F: FnMut(&SocketAddr) -> io::Result<T>
 {
     let mut last_err = None;
-    for addr in try!(addr.to_socket_addrs()) {
+    for addr in addr.to_socket_addrs()? {
         match f(&addr) {
             Ok(l) => return Ok(l),
             Err(e) => last_err = Some(e),
@@ -99,14 +101,17 @@ pub struct LookupHost(net_imp::LookupHost);
                                               addresses",
            issue = "27705")]
 impl Iterator for LookupHost {
-    type Item = io::Result<SocketAddr>;
-    fn next(&mut self) -> Option<io::Result<SocketAddr>> { self.0.next() }
+    type Item = SocketAddr;
+    fn next(&mut self) -> Option<SocketAddr> { self.0.next() }
 }
 
 /// Resolve the host specified by `host` as a number of `SocketAddr` instances.
 ///
 /// This method may perform a DNS query to resolve `host` and may also inspect
 /// system configuration to resolve the specified hostname.
+///
+/// The returned iterator will skip over any unknown addresses returned by the
+/// operating system.
 ///
 /// # Examples
 ///
@@ -117,7 +122,7 @@ impl Iterator for LookupHost {
 ///
 /// # fn foo() -> std::io::Result<()> {
 /// for host in try!(net::lookup_host("rust-lang.org")) {
-///     println!("found address: {}", try!(host));
+///     println!("found address: {}", host);
 /// }
 /// # Ok(())
 /// # }
@@ -128,34 +133,4 @@ impl Iterator for LookupHost {
            issue = "27705")]
 pub fn lookup_host(host: &str) -> io::Result<LookupHost> {
     net_imp::lookup_host(host).map(LookupHost)
-}
-
-/// Resolve the given address to a hostname.
-///
-/// This function may perform a DNS query to resolve `addr` and may also inspect
-/// system configuration to resolve the specified address. If the address
-/// cannot be resolved, it is returned in string format.
-///
-/// # Examples
-///
-/// ```no_run
-/// #![feature(lookup_addr)]
-/// #![feature(ip_addr)]
-///
-/// use std::net::{self, Ipv4Addr, IpAddr};
-///
-/// let ip_addr = "8.8.8.8";
-/// let addr: Ipv4Addr = ip_addr.parse().unwrap();
-/// let hostname = net::lookup_addr(&IpAddr::V4(addr)).unwrap();
-///
-/// println!("{} --> {}", ip_addr, hostname);
-/// // Output: 8.8.8.8 --> google-public-dns-a.google.com
-/// ```
-#[unstable(feature = "lookup_addr", reason = "recent addition",
-           issue = "27705")]
-#[rustc_deprecated(reason = "ipaddr type is being deprecated",
-                   since = "1.6.0")]
-#[allow(deprecated)]
-pub fn lookup_addr(addr: &IpAddr) -> io::Result<String> {
-    net_imp::lookup_addr(addr)
 }

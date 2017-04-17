@@ -25,14 +25,15 @@ Core encoding and decoding interfaces.
        html_root_url = "https://doc.rust-lang.org/nightly/",
        html_playground_url = "https://play.rust-lang.org/",
        test(attr(allow(unused_variables), deny(warnings))))]
+#![cfg_attr(not(stage0), deny(warnings))]
 
 #![feature(box_syntax)]
 #![feature(collections)]
+#![feature(core_intrinsics)]
 #![feature(enumset)]
-#![feature(hashmap_hasher)]
 #![feature(rustc_private)]
+#![feature(specialization)]
 #![feature(staged_api)]
-#![feature(str_char)]
 #![feature(unicode)]
 #![cfg_attr(test, feature(test))]
 
@@ -43,14 +44,19 @@ Core encoding and decoding interfaces.
 extern crate rustc_unicode;
 extern crate collections;
 
-pub use self::serialize::{Decoder, Encoder, Decodable, Encodable,
-                          DecoderHelpers, EncoderHelpers};
+pub use self::serialize::{Decoder, Encoder, Decodable, Encodable};
+
+pub use self::serialize::{SpecializationError, SpecializedEncoder, SpecializedDecoder};
+pub use self::serialize::{UseSpecializedEncodable, UseSpecializedDecodable};
 
 mod serialize;
 mod collection_impls;
 
 pub mod hex;
 pub mod json;
+
+pub mod opaque;
+pub mod leb128;
 
 mod rustc_serialize {
     pub use serialize::*;

@@ -15,16 +15,16 @@
 #include "llvm/Support/CBindingWrapping.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
-#if LLVM_VERSION_MINOR >= 7
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#else
-#include "llvm/Target/TargetLibraryInfo.h"
-#endif
+#include "llvm/IR/AutoUpgrade.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
+#if LLVM_VERSION_GE(4, 0)
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
+#endif
 
 #include "llvm-c/Transforms/PassManagerBuilder.h"
 
@@ -49,7 +49,7 @@ LLVMInitializePasses() {
   initializeVectorization(Registry);
   initializeIPO(Registry);
   initializeAnalysis(Registry);
-#if LLVM_VERSION_MINOR <= 7
+#if LLVM_VERSION_EQ(3, 7)
   initializeIPA(Registry);
 #endif
   initializeTransformUtils(Registry);
@@ -58,32 +58,280 @@ LLVMInitializePasses() {
   initializeTarget(Registry);
 }
 
-extern "C" bool
-LLVMRustAddPass(LLVMPassManagerRef PM, const char *PassName) {
-    PassManagerBase *pm = unwrap(PM);
+enum class LLVMRustPassKind {
+  Other,
+  Function,
+  Module,
+};
 
+static LLVMRustPassKind
+to_rust(PassKind kind)
+{
+  switch (kind) {
+  case PT_Function:
+      return LLVMRustPassKind::Function;
+  case PT_Module:
+      return LLVMRustPassKind::Module;
+  default:
+      return LLVMRustPassKind::Other;
+  }
+}
+
+extern "C" LLVMPassRef
+LLVMRustFindAndCreatePass(const char *PassName) {
     StringRef SR(PassName);
     PassRegistry *PR = PassRegistry::getPassRegistry();
 
     const PassInfo *PI = PR->getPassInfo(SR);
     if (PI) {
-        pm->add(PI->createPass());
-        return true;
+      return wrap(PI->createPass());
     }
-    return false;
+    return NULL;
 }
+
+extern "C" LLVMRustPassKind
+LLVMRustPassKind(LLVMPassRef rust_pass) {
+    assert(rust_pass);
+    Pass *pass = unwrap(rust_pass);
+    return to_rust(pass->getPassKind());
+}
+
+extern "C" void
+LLVMRustAddPass(LLVMPassManagerRef PM, LLVMPassRef rust_pass) {
+    assert(rust_pass);
+    Pass *pass = unwrap(rust_pass);
+    PassManagerBase *pm = unwrap(PM);
+    pm->add(pass);
+}
+
+#ifdef LLVM_COMPONENT_X86
+#define SUBTARGET_X86 SUBTARGET(X86)
+#else
+#define SUBTARGET_X86
+#endif
+
+#ifdef LLVM_COMPONENT_ARM
+#define SUBTARGET_ARM SUBTARGET(ARM)
+#else
+#define SUBTARGET_ARM
+#endif
+
+#ifdef LLVM_COMPONENT_AARCH64
+#define SUBTARGET_AARCH64 SUBTARGET(AArch64)
+#else
+#define SUBTARGET_AARCH64
+#endif
+
+#ifdef LLVM_COMPONENT_MIPS
+#define SUBTARGET_MIPS SUBTARGET(Mips)
+#else
+#define SUBTARGET_MIPS
+#endif
+
+#ifdef LLVM_COMPONENT_POWERPC
+#define SUBTARGET_PPC SUBTARGET(PPC)
+#else
+#define SUBTARGET_PPC
+#endif
+
+#ifdef LLVM_COMPONENT_SYSTEMZ
+#define SUBTARGET_SYSTEMZ SUBTARGET(SystemZ)
+#else
+#define SUBTARGET_SYSTEMZ
+#endif
+
+#ifdef LLVM_COMPONENT_MSP430
+#define SUBTARGET_MSP430 SUBTARGET(MSP430)
+#else
+#define SUBTARGET_MSP430
+#endif
+
+#define GEN_SUBTARGETS    \
+        SUBTARGET_X86     \
+        SUBTARGET_ARM     \
+        SUBTARGET_AARCH64 \
+        SUBTARGET_MIPS    \
+        SUBTARGET_PPC     \
+        SUBTARGET_SYSTEMZ \
+        SUBTARGET_MSP430
+
+#define SUBTARGET(x) namespace llvm {                \
+    extern const SubtargetFeatureKV x##FeatureKV[];  \
+    extern const SubtargetFeatureKV x##SubTypeKV[];  \
+  }
+
+GEN_SUBTARGETS
+#undef SUBTARGET
+
+extern "C" bool
+LLVMRustHasFeature(LLVMTargetMachineRef TM,
+		   const char *feature) {
+    TargetMachine *Target = unwrap(TM);
+    const MCSubtargetInfo *MCInfo = Target->getMCSubtargetInfo();
+    const FeatureBitset &Bits = MCInfo->getFeatureBits();
+    const llvm::SubtargetFeatureKV *FeatureEntry;
+
+#define SUBTARGET(x)                                        \
+    if (MCInfo->isCPUStringValid(x##SubTypeKV[0].Key)) {    \
+        FeatureEntry = x##FeatureKV;                       \
+    } else
+
+    GEN_SUBTARGETS {
+        return false;
+    }
+#undef SUBTARGET
+
+    while (strcmp(feature, FeatureEntry->Key) != 0)
+        FeatureEntry++;
+
+    return (Bits & FeatureEntry->Value) == FeatureEntry->Value;
+}
+
+enum class LLVMRustCodeModel {
+    Other,
+    Default,
+    JITDefault,
+    Small,
+    Kernel,
+    Medium,
+    Large,
+};
+
+static CodeModel::Model
+from_rust(LLVMRustCodeModel model)
+{
+    switch (model) {
+    case LLVMRustCodeModel::Default:
+        return CodeModel::Default;
+    case LLVMRustCodeModel::JITDefault:
+        return CodeModel::JITDefault;
+    case LLVMRustCodeModel::Small:
+        return CodeModel::Small;
+    case LLVMRustCodeModel::Kernel:
+        return CodeModel::Kernel;
+    case LLVMRustCodeModel::Medium:
+        return CodeModel::Medium;
+    case LLVMRustCodeModel::Large:
+        return CodeModel::Large;
+    default:
+        llvm_unreachable("Bad CodeModel.");
+  }
+}
+
+enum class LLVMRustCodeGenOptLevel {
+    Other,
+    None,
+    Less,
+    Default,
+    Aggressive,
+};
+
+static CodeGenOpt::Level
+from_rust(LLVMRustCodeGenOptLevel level)
+{
+    switch (level) {
+    case LLVMRustCodeGenOptLevel::None:
+        return CodeGenOpt::None;
+    case LLVMRustCodeGenOptLevel::Less:
+        return CodeGenOpt::Less;
+    case LLVMRustCodeGenOptLevel::Default:
+        return CodeGenOpt::Default;
+    case LLVMRustCodeGenOptLevel::Aggressive:
+        return CodeGenOpt::Aggressive;
+    default:
+        llvm_unreachable("Bad CodeGenOptLevel.");
+  }
+}
+
+#if LLVM_RUSTLLVM
+/// getLongestEntryLength - Return the length of the longest entry in the table.
+///
+static size_t getLongestEntryLength(ArrayRef<SubtargetFeatureKV> Table) {
+  size_t MaxLen = 0;
+  for (auto &I : Table)
+    MaxLen = std::max(MaxLen, std::strlen(I.Key));
+  return MaxLen;
+}
+
+extern "C" void
+LLVMRustPrintTargetCPUs(LLVMTargetMachineRef TM) {
+    const TargetMachine *Target = unwrap(TM);
+    const MCSubtargetInfo *MCInfo = Target->getMCSubtargetInfo();
+    const ArrayRef<SubtargetFeatureKV> CPUTable = MCInfo->getCPUTable();
+    unsigned MaxCPULen = getLongestEntryLength(CPUTable);
+
+    printf("Available CPUs for this target:\n");
+    for (auto &CPU : CPUTable)
+        printf("    %-*s - %s.\n", MaxCPULen, CPU.Key, CPU.Desc);
+    printf("\n");
+}
+
+extern "C" void
+LLVMRustPrintTargetFeatures(LLVMTargetMachineRef TM) {
+    const TargetMachine *Target = unwrap(TM);
+    const MCSubtargetInfo *MCInfo = Target->getMCSubtargetInfo();
+    const ArrayRef<SubtargetFeatureKV> FeatTable = MCInfo->getFeatureTable();
+    unsigned MaxFeatLen = getLongestEntryLength(FeatTable);
+
+    printf("Available features for this target:\n");
+    for (auto &Feature : FeatTable)
+        printf("    %-*s - %s.\n", MaxFeatLen, Feature.Key, Feature.Desc);
+    printf("\n");
+
+    printf("Use +feature to enable a feature, or -feature to disable it.\n"
+            "For example, rustc -C -target-cpu=mycpu -C target-feature=+feature1,-feature2\n\n");
+}
+
+#else
+
+extern "C" void
+LLVMRustPrintTargetCPUs(LLVMTargetMachineRef) {
+    printf("Target CPU help is not supported by this LLVM version.\n\n");
+}
+
+extern "C" void
+LLVMRustPrintTargetFeatures(LLVMTargetMachineRef) {
+    printf("Target features help is not supported by this LLVM version.\n\n");
+}
+#endif
 
 extern "C" LLVMTargetMachineRef
 LLVMRustCreateTargetMachine(const char *triple,
                             const char *cpu,
                             const char *feature,
-                            CodeModel::Model CM,
-                            Reloc::Model RM,
-                            CodeGenOpt::Level OptLevel,
+                            LLVMRustCodeModel rust_CM,
+                            LLVMRelocMode Reloc,
+                            LLVMRustCodeGenOptLevel rust_OptLevel,
                             bool UseSoftFloat,
                             bool PositionIndependentExecutable,
                             bool FunctionSections,
                             bool DataSections) {
+
+#if LLVM_VERSION_LE(3, 8)
+    Reloc::Model RM;
+#else
+    Optional<Reloc::Model> RM;
+#endif
+    auto CM = from_rust(rust_CM);
+    auto OptLevel = from_rust(rust_OptLevel);
+
+    switch (Reloc){
+        case LLVMRelocStatic:
+            RM = Reloc::Static;
+            break;
+        case LLVMRelocPIC:
+            RM = Reloc::PIC_;
+            break;
+        case LLVMRelocDynamicNoPic:
+            RM = Reloc::DynamicNoPIC;
+            break;
+        default:
+#if LLVM_VERSION_LE(3, 8)
+            RM = Reloc::Default;
+#endif
+            break;
+    }
+
     std::string Error;
     Triple Trip(Triple::normalize(triple));
     const llvm::Target *TheTarget = TargetRegistry::lookupTarget(Trip.getTriple(),
@@ -99,7 +347,10 @@ LLVMRustCreateTargetMachine(const char *triple,
     }
 
     TargetOptions Options;
+#if LLVM_VERSION_LE(3, 8)
     Options.PositionIndependentExecutable = PositionIndependentExecutable;
+#endif
+
     Options.FloatABIType = FloatABI::Default;
     if (UseSoftFloat) {
         Options.FloatABIType = FloatABI::Soft;
@@ -130,31 +381,20 @@ LLVMRustAddAnalysisPasses(LLVMTargetMachineRef TM,
                           LLVMPassManagerRef PMR,
                           LLVMModuleRef M) {
     PassManagerBase *PM = unwrap(PMR);
-#if LLVM_VERSION_MINOR >= 7
     PM->add(createTargetTransformInfoWrapperPass(
           unwrap(TM)->getTargetIRAnalysis()));
-#else
-#if LLVM_VERSION_MINOR == 6
-    PM->add(new DataLayoutPass());
-#else
-    PM->add(new DataLayoutPass(unwrap(M)));
-#endif
-    unwrap(TM)->addAnalysisPasses(*PM);
-#endif
 }
 
 extern "C" void
 LLVMRustConfigurePassManagerBuilder(LLVMPassManagerBuilderRef PMB,
-                                    CodeGenOpt::Level OptLevel,
+				    LLVMRustCodeGenOptLevel OptLevel,
                                     bool MergeFunctions,
                                     bool SLPVectorize,
                                     bool LoopVectorize) {
-#if LLVM_VERSION_MINOR >= 6
     // Ignore mergefunc for now as enabling it causes crashes.
     //unwrap(PMB)->MergeFunctions = MergeFunctions;
-#endif
     unwrap(PMB)->SLPVectorize = SLPVectorize;
-    unwrap(PMB)->OptLevel = OptLevel;
+    unwrap(PMB)->OptLevel = from_rust(OptLevel);
     unwrap(PMB)->LoopVectorize = LoopVectorize;
 }
 
@@ -165,11 +405,7 @@ LLVMRustAddBuilderLibraryInfo(LLVMPassManagerBuilderRef PMB,
                               LLVMModuleRef M,
                               bool DisableSimplifyLibCalls) {
     Triple TargetTriple(unwrap(M)->getTargetTriple());
-#if LLVM_VERSION_MINOR >= 7
     TargetLibraryInfoImpl *TLI = new TargetLibraryInfoImpl(TargetTriple);
-#else
-    TargetLibraryInfo *TLI = new TargetLibraryInfo(TargetTriple);
-#endif
     if (DisableSimplifyLibCalls)
       TLI->disableAllFunctions();
     unwrap(PMB)->LibraryInfo = TLI;
@@ -182,17 +418,10 @@ LLVMRustAddLibraryInfo(LLVMPassManagerRef PMB,
                        LLVMModuleRef M,
                        bool DisableSimplifyLibCalls) {
     Triple TargetTriple(unwrap(M)->getTargetTriple());
-#if LLVM_VERSION_MINOR >= 7
     TargetLibraryInfoImpl TLII(TargetTriple);
     if (DisableSimplifyLibCalls)
       TLII.disableAllFunctions();
     unwrap(PMB)->add(new TargetLibraryInfoWrapperPass(TLII));
-#else
-    TargetLibraryInfo *TLI = new TargetLibraryInfo(TargetTriple);
-    if (DisableSimplifyLibCalls)
-      TLI->disableAllFunctions();
-    unwrap(PMB)->add(TLI);
-#endif
 }
 
 // Unfortunately, the LLVM C API doesn't provide an easy way of iterating over
@@ -200,12 +429,19 @@ LLVMRustAddLibraryInfo(LLVMPassManagerRef PMB,
 // similar code in clang's BackendUtil.cpp file.
 extern "C" void
 LLVMRustRunFunctionPassManager(LLVMPassManagerRef PM, LLVMModuleRef M) {
-    FunctionPassManager *P = unwrap<FunctionPassManager>(PM);
+    llvm::legacy::FunctionPassManager *P = unwrap<llvm::legacy::FunctionPassManager>(PM);
     P->doInitialization();
+
+    // Upgrade all calls to old intrinsics first.
+    for (Module::iterator I = unwrap(M)->begin(),
+         E = unwrap(M)->end(); I != E;)
+        UpgradeCallsToIntrinsic(&*I++); // must be post-increment, as we remove
+
     for (Module::iterator I = unwrap(M)->begin(),
          E = unwrap(M)->end(); I != E; ++I)
         if (!I->isDeclaration())
             P->run(*I);
+
     P->doFinalization();
 }
 
@@ -221,58 +457,65 @@ LLVMRustSetLLVMOptions(int Argc, char **Argv) {
     cl::ParseCommandLineOptions(Argc, Argv);
 }
 
-extern "C" bool
+enum class LLVMRustFileType {
+    Other,
+    AssemblyFile,
+    ObjectFile,
+};
+
+static TargetMachine::CodeGenFileType
+from_rust(LLVMRustFileType type)
+{
+    switch (type) {
+    case LLVMRustFileType::AssemblyFile:
+        return TargetMachine::CGFT_AssemblyFile;
+    case LLVMRustFileType::ObjectFile:
+        return TargetMachine::CGFT_ObjectFile;
+    default:
+        llvm_unreachable("Bad FileType.");
+  }
+}
+
+extern "C" LLVMRustResult
 LLVMRustWriteOutputFile(LLVMTargetMachineRef Target,
                         LLVMPassManagerRef PMR,
                         LLVMModuleRef M,
                         const char *path,
-                        TargetMachine::CodeGenFileType FileType) {
-  PassManager *PM = unwrap<PassManager>(PMR);
+                        LLVMRustFileType rust_FileType) {
+  llvm::legacy::PassManager *PM = unwrap<llvm::legacy::PassManager>(PMR);
+  auto FileType = from_rust(rust_FileType);
 
   std::string ErrorInfo;
-#if LLVM_VERSION_MINOR >= 6
   std::error_code EC;
   raw_fd_ostream OS(path, EC, sys::fs::F_None);
   if (EC)
     ErrorInfo = EC.message();
-#else
-  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
-#endif
   if (ErrorInfo != "") {
     LLVMRustSetLastError(ErrorInfo.c_str());
-    return false;
+    return LLVMRustResult::Failure;
   }
 
-#if LLVM_VERSION_MINOR >= 7
   unwrap(Target)->addPassesToEmitFile(*PM, OS, FileType, false);
-#else
-  formatted_raw_ostream FOS(OS);
-  unwrap(Target)->addPassesToEmitFile(*PM, FOS, FileType, false);
-#endif
   PM->run(*unwrap(M));
 
   // Apparently `addPassesToEmitFile` adds a pointer to our on-the-stack output
   // stream (OS), so the only real safe place to delete this is here? Don't we
   // wish this was written in Rust?
   delete PM;
-  return true;
+  return LLVMRustResult::Success;
 }
 
 extern "C" void
 LLVMRustPrintModule(LLVMPassManagerRef PMR,
                     LLVMModuleRef M,
                     const char* path) {
-  PassManager *PM = unwrap<PassManager>(PMR);
+  llvm::legacy::PassManager *PM = unwrap<llvm::legacy::PassManager>(PMR);
   std::string ErrorInfo;
 
-#if LLVM_VERSION_MINOR >= 6
   std::error_code EC;
   raw_fd_ostream OS(path, EC, sys::fs::F_None);
   if (EC)
     ErrorInfo = EC.message();
-#else
-  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
-#endif
 
   formatted_raw_ostream FOS(OS);
 
@@ -286,10 +529,19 @@ LLVMRustPrintPasses() {
     LLVMInitializePasses();
     struct MyListener : PassRegistrationListener {
         void passEnumerate(const PassInfo *info) {
+#if LLVM_VERSION_GE(4, 0)
+            StringRef PassArg = info->getPassArgument();
+            StringRef PassName = info->getPassName();
+            if (!PassArg.empty()) {
+                printf("%15.*s - %.*s\n", PassArg.size(), PassArg.data(),
+                       PassName.size(), PassName.data());
+            }
+#else
             if (info->getPassArgument() && *info->getPassArgument()) {
                 printf("%15s - %s\n", info->getPassArgument(),
                        info->getPassName());
             }
+#endif
         }
     } listener;
 
@@ -299,14 +551,33 @@ LLVMRustPrintPasses() {
 
 extern "C" void
 LLVMRustAddAlwaysInlinePass(LLVMPassManagerBuilderRef PMB, bool AddLifetimes) {
+#if LLVM_VERSION_GE(4, 0)
+    unwrap(PMB)->Inliner = llvm::createAlwaysInlinerLegacyPass(AddLifetimes);
+#else
     unwrap(PMB)->Inliner = createAlwaysInlinerPass(AddLifetimes);
+#endif
 }
 
 extern "C" void
 LLVMRustRunRestrictionPass(LLVMModuleRef M, char **symbols, size_t len) {
-    PassManager passes;
+    llvm::legacy::PassManager passes;
+
+#if LLVM_VERSION_LE(3, 8)
     ArrayRef<const char*> ref(symbols, len);
     passes.add(llvm::createInternalizePass(ref));
+#else
+    auto PreserveFunctions = [=](const GlobalValue &GV) {
+        for (size_t i=0; i<len; i++) {
+            if (GV.getName() == symbols[i]) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    passes.add(llvm::createInternalizePass(PreserveFunctions));
+#endif
+
     passes.run(*unwrap(M));
 }
 
@@ -335,22 +606,17 @@ extern "C" void
 LLVMRustSetDataLayoutFromTargetMachine(LLVMModuleRef Module,
                                        LLVMTargetMachineRef TMR) {
     TargetMachine *Target = unwrap(TMR);
-#if LLVM_VERSION_MINOR >= 7
     unwrap(Module)->setDataLayout(Target->createDataLayout());
-#elif LLVM_VERSION_MINOR >= 6
-    if (const DataLayout *DL = Target->getSubtargetImpl()->getDataLayout())
-        unwrap(Module)->setDataLayout(DL);
-#else
-    if (const DataLayout *DL = Target->getDataLayout())
-        unwrap(Module)->setDataLayout(DL);
-#endif
 }
 
 extern "C" LLVMTargetDataRef
 LLVMRustGetModuleDataLayout(LLVMModuleRef M) {
-#if LLVM_VERSION_MINOR >= 7
     return wrap(&unwrap(M)->getDataLayout());
-#else
-    return wrap(unwrap(M)->getDataLayout());
+}
+
+extern "C" void
+LLVMRustSetModulePIELevel(LLVMModuleRef M) {
+#if LLVM_VERSION_GE(3, 9)
+    unwrap(M)->setPIELevel(PIELevel::Level::Large);
 #endif
 }

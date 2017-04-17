@@ -123,7 +123,6 @@ dispatch with trait objects by casting:
 # trait Foo { fn method(&self) -> String; }
 # impl Foo for u8 { fn method(&self) -> String { format!("u8: {}", *self) } }
 # impl Foo for String { fn method(&self) -> String { format!("string: {}", *self) } }
-
 fn do_something(x: &Foo) {
     x.method();
 }
@@ -140,7 +139,6 @@ or by coercing:
 # trait Foo { fn method(&self) -> String; }
 # impl Foo for u8 { fn method(&self) -> String { format!("u8: {}", *self) } }
 # impl Foo for String { fn method(&self) -> String { format!("string: {}", *self) } }
-
 fn do_something(x: &Foo) {
     x.method();
 }
@@ -223,8 +221,8 @@ struct FooVtable {
 // u8:
 
 fn call_method_on_u8(x: *const ()) -> String {
-    // the compiler guarantees that this function is only called
-    // with `x` pointing to a u8
+    // The compiler guarantees that this function is only called
+    // with `x` pointing to a u8.
     let byte: &u8 = unsafe { &*(x as *const u8) };
 
     byte.method()
@@ -235,7 +233,7 @@ static Foo_for_u8_vtable: FooVtable = FooVtable {
     size: 1,
     align: 1,
 
-    // cast to a function pointer
+    // Cast to a function pointer:
     method: call_method_on_u8 as fn(*const ()) -> String,
 };
 
@@ -243,8 +241,8 @@ static Foo_for_u8_vtable: FooVtable = FooVtable {
 // String:
 
 fn call_method_on_String(x: *const ()) -> String {
-    // the compiler guarantees that this function is only called
-    // with `x` pointing to a String
+    // The compiler guarantees that this function is only called
+    // with `x` pointing to a String.
     let string: &String = unsafe { &*(x as *const String) };
 
     string.method()
@@ -252,7 +250,7 @@ fn call_method_on_String(x: *const ()) -> String {
 
 static Foo_for_String_vtable: FooVtable = FooVtable {
     destructor: /* compiler magic */,
-    // values for a 64-bit computer, halve them for 32-bit ones
+    // Values for a 64-bit computer, halve them for 32-bit ones.
     size: 24,
     align: 8,
 
@@ -280,17 +278,17 @@ let x: u8 = 1;
 
 // let b: &Foo = &a;
 let b = TraitObject {
-    // store the data
+    // Store the data:
     data: &a,
-    // store the methods
+    // Store the methods:
     vtable: &Foo_for_String_vtable
 };
 
 // let y: &Foo = x;
 let y = TraitObject {
-    // store the data
+    // Store the data:
     data: &x,
-    // store the methods
+    // Store the methods:
     vtable: &Foo_for_u8_vtable
 };
 
@@ -306,7 +304,7 @@ let y = TraitObject {
 Not every trait can be used to make a trait object. For example, vectors implement
 `Clone`, but if we try to make a trait object:
 
-```ignore
+```rust,ignore
 let v = vec![1, 2, 3];
 let o = &v as &Clone;
 ```

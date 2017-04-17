@@ -18,12 +18,12 @@ use rustc::middle::expr_use_visitor as euv;
 use rustc::middle::mem_categorization as mc;
 use rustc::middle::mem_categorization::Categorization;
 use rustc::middle::mem_categorization::InteriorOffsetKind as Kind;
-use rustc::middle::ty;
+use rustc::ty;
 
 use std::rc::Rc;
 use syntax::ast;
-use syntax::codemap::Span;
-use rustc_front::hir;
+use syntax_pos::Span;
+use rustc::hir::{self, PatKind};
 
 struct GatherMoveInfo<'tcx> {
     id: ast::NodeId,
@@ -37,7 +37,7 @@ pub fn gather_decl<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                              decl_id: ast::NodeId,
                              _decl_span: Span,
                              var_id: ast::NodeId) {
-    let ty = bccx.tcx.node_id_to_type(var_id);
+    let ty = bccx.tcx.tables().node_id_to_type(var_id);
     let loan_path = Rc::new(LoanPath::new(LpVar(var_id), ty));
     move_data.add_move(bccx.tcx, loan_path, decl_id, Declared);
 }
@@ -78,8 +78,8 @@ pub fn gather_match_variant<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                 LpDowncast(ref base_lp, _) =>
                     move_data.add_variant_match(
                         tcx, lp.clone(), move_pat.id, base_lp.clone(), mode),
-                _ => panic!("should only call gather_match_variant \
-                             for cat_downcast cmt"),
+                _ => bug!("should only call gather_match_variant \
+                           for cat_downcast cmt"),
             }
         }
         None => {
@@ -98,9 +98,9 @@ pub fn gather_move_from_pat<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                                       move_pat: &hir::Pat,
                                       cmt: mc::cmt<'tcx>) {
     let pat_span_path_opt = match move_pat.node {
-        hir::PatIdent(_, ref path1, _) => {
+        PatKind::Binding(_, _, ref path1, _) => {
             Some(MoveSpanAndPath{span: move_pat.span,
-                                 name: path1.node.name})
+                                 name: path1.node})
         },
         _ => None,
     };
@@ -122,15 +122,12 @@ fn gather_move<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
 
     let potentially_illegal_move =
                 check_and_get_illegal_move_origin(bccx, &move_info.cmt);
-    match potentially_illegal_move {
-        Some(illegal_move_origin) => {
-            debug!("illegal_move_origin={:?}", illegal_move_origin);
-            let error = MoveError::with_move_info(illegal_move_origin,
-                                                  move_info.span_path_opt);
-            move_error_collector.add_error(error);
-            return
-        }
-        None => ()
+    if let Some(illegal_move_origin) = potentially_illegal_move {
+        debug!("illegal_move_origin={:?}", illegal_move_origin);
+        let error = MoveError::with_move_info(illegal_move_origin,
+                                              move_info.span_path_opt);
+        move_error_collector.add_error(error);
+        return;
     }
 
     match opt_loan_path(&move_info.cmt) {
@@ -164,9 +161,9 @@ fn check_and_get_illegal_move_origin<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
                                                cmt: &mc::cmt<'tcx>)
                                                -> Option<mc::cmt<'tcx>> {
     match cmt.cat {
-        Categorization::Deref(_, _, mc::BorrowedPtr(..)) |
-        Categorization::Deref(_, _, mc::Implicit(..)) |
-        Categorization::Deref(_, _, mc::UnsafePtr(..)) |
+        Categorization::Deref(.., mc::BorrowedPtr(..)) |
+        Categorization::Deref(.., mc::Implicit(..)) |
+        Categorization::Deref(.., mc::UnsafePtr(..)) |
         Categorization::StaticItem => {
             Some(cmt.clone())
         }
@@ -181,13 +178,14 @@ fn check_and_get_illegal_move_origin<'a, 'tcx>(bccx: &BorrowckCtxt<'a, 'tcx>,
         Categorization::Interior(ref b, mc::InteriorField(_)) |
         Categorization::Interior(ref b, mc::InteriorElement(Kind::Pattern, _)) => {
             match b.ty.sty {
-                ty::TyStruct(def, _) | ty::TyEnum(def, _) => {
+                ty::TyAdt(def, _) => {
                     if def.has_dtor() {
                         Some(cmt.clone())
                     } else {
                         check_and_get_illegal_move_origin(bccx, b)
                     }
                 }
+                ty::TySlice(..) => Some(cmt.clone()),
                 _ => {
                     check_and_get_illegal_move_origin(bccx, b)
                 }

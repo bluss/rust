@@ -8,12 +8,12 @@ extend the compiler's behavior with new syntax extensions, lint checks, etc.
 A plugin is a dynamic library crate with a designated *registrar* function that
 registers extensions with `rustc`. Other crates can load these extensions using
 the crate attribute `#![plugin(...)]`.  See the
-[`rustc_plugin`](../rustc_plugin/index.html) documentation for more about the
+`rustc_plugin` documentation for more about the
 mechanics of defining and loading a plugin.
 
 If present, arguments passed as `#![plugin(foo(... args ...))]` are not
 interpreted by rustc itself.  They are provided to the plugin through the
-`Registry`'s [`args` method](../rustc_plugin/registry/struct.Registry.html#method.args).
+`Registry`'s `args` method.
 
 In the vast majority of cases, a plugin should *only* be used through
 `#![plugin]` and not through an `extern crate` item.  Linking a plugin would
@@ -30,14 +30,14 @@ of a library.
 Plugins can extend Rust's syntax in various ways. One kind of syntax extension
 is the procedural macro. These are invoked the same way as [ordinary
 macros](macros.html), but the expansion is performed by arbitrary Rust
-code that manipulates [syntax trees](../syntax/ast/index.html) at
+code that manipulates syntax trees at
 compile time.
 
 Let's write a plugin
-[`roman_numerals.rs`](https://github.com/rust-lang/rust/tree/master/src/test/auxiliary/roman_numerals.rs)
+[`roman_numerals.rs`](https://github.com/rust-lang/rust/blob/master/src/test/run-pass-fulldeps/auxiliary/roman_numerals.rs)
 that implements Roman numeral integer literals.
 
-```ignore
+```rust,ignore
 #![crate_type="dylib"]
 #![feature(plugin_registrar, rustc_private)]
 
@@ -45,11 +45,11 @@ extern crate syntax;
 extern crate rustc;
 extern crate rustc_plugin;
 
-use syntax::codemap::Span;
 use syntax::parse::token;
-use syntax::ast::TokenTree;
+use syntax::tokenstream::TokenTree;
 use syntax::ext::base::{ExtCtxt, MacResult, DummyResult, MacEager};
-use syntax::ext::build::AstBuilder;  // trait for expr_usize
+use syntax::ext::build::AstBuilder;  // A trait for expr_usize.
+use syntax::ext::quote::rt::Span;
 use rustc_plugin::Registry;
 
 fn expand_rn(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree])
@@ -69,7 +69,7 @@ fn expand_rn(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree])
     }
 
     let text = match args[0] {
-        TokenTree::Token(_, token::Ident(s, _)) => s.to_string(),
+        TokenTree::Token(_, token::Ident(s)) => s.to_string(),
         _ => {
             cx.span_err(sp, "argument should be a single identifier");
             return DummyResult::any(sp);
@@ -102,7 +102,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
 
 Then we can use `rn!()` like any other macro:
 
-```ignore
+```rust,ignore
 #![feature(plugin)]
 #![plugin(roman_numerals)]
 
@@ -120,11 +120,8 @@ The advantages over a simple `fn(&str) -> u32` are:
 
 In addition to procedural macros, you can define new
 [`derive`](../reference.html#derive)-like attributes and other kinds of
-extensions.  See
-[`Registry::register_syntax_extension`](../rustc_plugin/registry/struct.Registry.html#method.register_syntax_extension)
-and the [`SyntaxExtension`
-enum](https://doc.rust-lang.org/syntax/ext/base/enum.SyntaxExtension.html).  For
-a more involved macro example, see
+extensions.  See `Registry::register_syntax_extension` and the `SyntaxExtension`
+enum.  For a more involved macro example, see
 [`regex_macros`](https://github.com/rust-lang/regex/blob/master/regex_macros/src/lib.rs).
 
 
@@ -132,10 +129,10 @@ a more involved macro example, see
 
 Some of the [macro debugging tips](macros.html#debugging-macro-code) are applicable.
 
-You can use [`syntax::parse`](../syntax/parse/index.html) to turn token trees into
+You can use `syntax::parse` to turn token trees into
 higher-level syntax elements like expressions:
 
-```ignore
+```rust,ignore
 fn expand_foo(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree])
         -> Box<MacResult+'static> {
 
@@ -148,40 +145,32 @@ Looking through [`libsyntax` parser
 code](https://github.com/rust-lang/rust/blob/master/src/libsyntax/parse/parser.rs)
 will give you a feel for how the parsing infrastructure works.
 
-Keep the [`Span`s](../syntax/codemap/struct.Span.html) of
-everything you parse, for better error reporting. You can wrap
-[`Spanned`](../syntax/codemap/struct.Spanned.html) around
-your custom data structures.
+Keep the `Span`s of everything you parse, for better error reporting. You can
+wrap `Spanned` around your custom data structures.
 
-Calling
-[`ExtCtxt::span_fatal`](../syntax/ext/base/struct.ExtCtxt.html#method.span_fatal)
-will immediately abort compilation. It's better to instead call
-[`ExtCtxt::span_err`](../syntax/ext/base/struct.ExtCtxt.html#method.span_err)
-and return
-[`DummyResult`](../syntax/ext/base/struct.DummyResult.html),
-so that the compiler can continue and find further errors.
+Calling `ExtCtxt::span_fatal` will immediately abort compilation. It's better to
+instead call `ExtCtxt::span_err` and return `DummyResult` so that the compiler
+can continue and find further errors.
 
-To print syntax fragments for debugging, you can use
-[`span_note`](../syntax/ext/base/struct.ExtCtxt.html#method.span_note) together
-with
-[`syntax::print::pprust::*_to_string`](https://doc.rust-lang.org/syntax/print/pprust/index.html#functions).
+To print syntax fragments for debugging, you can use `span_note` together with
+`syntax::print::pprust::*_to_string`.
 
-The example above produced an integer literal using
-[`AstBuilder::expr_usize`](../syntax/ext/build/trait.AstBuilder.html#tymethod.expr_usize).
+The example above produced an integer literal using `AstBuilder::expr_usize`.
 As an alternative to the `AstBuilder` trait, `libsyntax` provides a set of
-[quasiquote macros](../syntax/ext/quote/index.html).  They are undocumented and
-very rough around the edges.  However, the implementation may be a good
-starting point for an improved quasiquote as an ordinary plugin library.
+quasiquote macros. They are undocumented and very rough around the edges.
+However, the implementation may be a good starting point for an improved
+quasiquote as an ordinary plugin library.
 
 
 # Lint plugins
 
 Plugins can extend [Rust's lint
 infrastructure](../reference.html#lint-check-attributes) with additional checks for
-code style, safety, etc. Now let's write a plugin [`lint_plugin_test.rs`](https://github.com/rust-lang/rust/blob/master/src/test/auxiliary/lint_plugin_test.rs)
+code style, safety, etc. Now let's write a plugin
+[`lint_plugin_test.rs`](https://github.com/rust-lang/rust/blob/master/src/test/run-pass-fulldeps/auxiliary/lint_plugin_test.rs)
 that warns about any item named `lintme`.
 
-```ignore
+```rust,ignore
 #![feature(plugin_registrar)]
 #![feature(box_syntax, rustc_private)]
 
@@ -223,7 +212,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
 
 Then code like
 
-```ignore
+```rust,ignore
 #![plugin(lint_plugin_test)]
 
 fn lintme() { }
@@ -239,12 +228,11 @@ foo.rs:4 fn lintme() { }
 
 The components of a lint plugin are:
 
-* one or more `declare_lint!` invocations, which define static
-  [`Lint`](../rustc/lint/struct.Lint.html) structs;
+* one or more `declare_lint!` invocations, which define static `Lint` structs;
 
 * a struct holding any state needed by the lint pass (here, none);
 
-* a [`LintPass`](../rustc/lint/trait.LintPass.html)
+* a `LintPass`
   implementation defining how to check each syntax element. A single
   `LintPass` may call `span_lint` for several different `Lint`s, but should
   register them all through the `get_lints` method.

@@ -74,7 +74,7 @@ for x in 0..10 {
 
 In slightly more abstract terms,
 
-```ignore
+```rust,ignore
 for var in expression {
     code
 }
@@ -105,19 +105,19 @@ When you need to keep track of how many times you already looped, you can use th
 #### On ranges:
 
 ```rust
-for (i,j) in (5..10).enumerate() {
-    println!("i = {} and j = {}", i, j);
+for (index, value) in (5..10).enumerate() {
+    println!("index = {} and value = {}", index, value);
 }
 ```
 
 Outputs:
 
 ```text
-i = 0 and j = 5
-i = 1 and j = 6
-i = 2 and j = 7
-i = 3 and j = 8
-i = 4 and j = 9
+index = 0 and value = 5
+index = 1 and value = 6
+index = 2 and value = 7
+index = 3 and value = 8
+index = 4 and value = 9
 ```
 
 Don't forget to add the parentheses around the range.
@@ -125,7 +125,8 @@ Don't forget to add the parentheses around the range.
 #### On iterators:
 
 ```rust
-# let lines = "hello\nworld".lines();
+let lines = "hello\nworld".lines();
+
 for (linenumber, line) in lines.enumerate() {
     println!("{}: {}", linenumber, line);
 }
@@ -134,10 +135,8 @@ for (linenumber, line) in lines.enumerate() {
 Outputs:
 
 ```text
-0: Content of line one
-1: Content of line two
-2: Content of line three
-3: Content of line four
+0: hello
+1: world
 ```
 
 ## Ending iteration early
@@ -179,7 +178,7 @@ loop {
 
 We now loop forever with `loop` and use `break` to break out early. Issuing an explicit `return` statement will also serve to terminate the loop early.
 
-`continue` is similar, but instead of ending the loop, goes to the next
+`continue` is similar, but instead of ending the loop, it goes to the next
 iteration. This will only print the odd numbers:
 
 ```rust
@@ -195,7 +194,7 @@ for x in 0..10 {
 You may also encounter situations where you have nested loops and need to
 specify which one your `break` or `continue` statement is for. Like most
 other languages, by default a `break` or `continue` will apply to innermost
-loop. In a situation where you would like to a `break` or `continue` for one
+loop. In a situation where you would like to `break` or `continue` for one
 of the outer loops, you can use labels to specify which loop the `break` or
  `continue` statement applies to. This will only print when both `x` and `y` are
  odd:
@@ -203,8 +202,8 @@ of the outer loops, you can use labels to specify which loop the `break` or
 ```rust
 'outer: for x in 0..10 {
     'inner: for y in 0..10 {
-        if x % 2 == 0 { continue 'outer; } // continues the loop over x
-        if y % 2 == 0 { continue 'inner; } // continues the loop over y
+        if x % 2 == 0 { continue 'outer; } // Continues the loop over `x`.
+        if y % 2 == 0 { continue 'inner; } // Continues the loop over `y`.
         println!("x: {}, y: {}", x, y);
     }
 }

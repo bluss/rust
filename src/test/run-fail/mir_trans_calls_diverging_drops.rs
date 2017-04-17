@@ -7,9 +7,10 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-#![feature(rustc_attrs)]
+
 // error-pattern:diverging_fn called
 // error-pattern:0 dropped
+
 use std::io::{self, Write};
 
 struct Droppable(u8);
@@ -23,7 +24,6 @@ fn diverging_fn() -> ! {
     panic!("diverging_fn called")
 }
 
-#[rustc_mir]
 fn mir(d: Droppable) {
     diverging_fn();
 }

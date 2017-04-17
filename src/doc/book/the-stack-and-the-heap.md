@@ -26,6 +26,8 @@ The stack is very fast, and is where memory is allocated in Rust by default.
 But the allocation is local to a function call, and is limited in size. The
 heap, on the other hand, is slower, and is explicitly allocated by your
 program. But it’s effectively unlimited in size, and is globally accessible.
+Note this meaning of heap, which allocates arbitrary-sized blocks of memory in arbitrary
+order, is quite different from the heap data structure.  
 
 # The Stack
 
@@ -175,6 +177,7 @@ And then `bold()` calls `italic()`:
 | **2**   | **b**|**100**|
 | **1**   | **a**| **5** |
 | 0       | x    | 42    |
+
 Whew! Our stack is growing tall.
 
 After `italic()` is over, its frame is deallocated, leaving only `bold()` and
@@ -260,8 +263,7 @@ layout of a program which has been running for a while now:
 | (2<sup>30</sup>) - 3 |      |                        |
 | (2<sup>30</sup>) - 4 |      | 42                     |
 | ...                  | ...  | ...                    |
-| 3                    | y    | → (2<sup>30</sup>) - 4 |
-| 2                    | y    | 42                     |
+| 2                    | z    | → (2<sup>30</sup>) - 4 |
 | 1                    | y    | 42                     |
 | 0                    | x    | → (2<sup>30</sup>) - 1 |
 

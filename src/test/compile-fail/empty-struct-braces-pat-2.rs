@@ -12,8 +12,6 @@
 
 // aux-build:empty-struct.rs
 
-#![feature(braced_empty_structs)]
-
 extern crate empty_struct;
 use empty_struct::*;
 
@@ -23,17 +21,16 @@ fn main() {
     let e1 = Empty1 {};
     let xe1 = XEmpty1 {};
 
-    // Rejected by parser as yet
-    // match e1 {
-    //     Empty1() => () // ERROR unresolved enum variant, struct or const `Empty1`
-    // }
-    // match xe1 {
-    //     XEmpty1() => () // ERROR unresolved enum variant, struct or const `XEmpty1`
-    // }
     match e1 {
-        Empty1(..) => () //~ ERROR unresolved enum variant, struct or const `Empty1`
+        Empty1() => () //~ ERROR unresolved tuple struct/variant `Empty1`
     }
     match xe1 {
-        XEmpty1(..) => () //~ ERROR `XEmpty1` does not name a tuple variant or a tuple struct
+        XEmpty1() => () //~ ERROR unresolved tuple struct/variant `XEmpty1`
+    }
+    match e1 {
+        Empty1(..) => () //~ ERROR unresolved tuple struct/variant `Empty1`
+    }
+    match xe1 {
+        XEmpty1(..) => () //~ ERROR unresolved tuple struct/variant `XEmpty1`
     }
 }

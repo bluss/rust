@@ -19,31 +19,28 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
-      html_root_url = "https://doc.rust-lang.org/nightly/")]
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
+       html_root_url = "https://doc.rust-lang.org/nightly/")]
+#![cfg_attr(not(stage0), deny(warnings))]
 
 #![feature(associated_consts)]
+#![feature(borrow_state)]
 #![feature(box_patterns)]
 #![feature(box_syntax)]
-#![feature(cell_extras)]
 #![feature(collections)]
+#![feature(conservative_impl_trait)]
 #![feature(const_fn)]
-#![feature(enumset)]
-#![feature(hashmap_hasher)]
-#![feature(iter_arith)]
+#![feature(core_intrinsics)]
+#![cfg_attr(stage0, feature(item_like_imports))]
 #![feature(libc)]
 #![feature(nonzero)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
-#![feature(scoped_tls)]
 #![feature(slice_patterns)]
 #![feature(staged_api)]
-#![feature(str_char)]
-#![feature(time2)]
+#![feature(unboxed_closures)]
 #![cfg_attr(test, feature(test))]
-
-#![allow(trivial_casts)]
 
 extern crate arena;
 extern crate core;
@@ -52,23 +49,22 @@ extern crate fmt_macros;
 extern crate getopts;
 extern crate graphviz;
 extern crate libc;
-extern crate rbml;
-extern crate rustc_llvm;
+extern crate rustc_llvm as llvm;
 extern crate rustc_back;
-extern crate rustc_front;
 extern crate rustc_data_structures;
 extern crate serialize;
 extern crate collections;
+extern crate rustc_const_math;
+extern crate rustc_errors as errors;
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
+#[macro_use] extern crate syntax_pos;
 #[macro_use] #[no_link] extern crate rustc_bitflags;
 
 extern crate serialize as rustc_serialize; // used by deriving
 
 #[cfg(test)]
 extern crate test;
-
-pub use rustc_llvm as llvm;
 
 #[macro_use]
 mod macros;
@@ -77,79 +73,48 @@ mod macros;
 // registered before they are used.
 pub mod diagnostics;
 
-pub mod back {
-    pub use rustc_back::abi;
-    pub use rustc_back::rpath;
-    pub use rustc_back::svh;
-}
-
+pub mod cfg;
 pub mod dep_graph;
-
-pub mod front {
-    pub mod check_attr;
-    pub mod map;
-}
+pub mod hir;
+pub mod infer;
+pub mod lint;
 
 pub mod middle {
     pub mod astconv_util;
     pub mod expr_use_visitor; // STAGE0: increase glitch immunity
-    pub mod cfg;
-    pub mod check_const;
-    pub mod check_static_recursion;
-    pub mod check_loop;
-    pub mod check_match;
-    pub mod check_rvalues;
-    pub mod const_eval;
+    pub mod const_val;
+    pub mod const_qualif;
     pub mod cstore;
     pub mod dataflow;
     pub mod dead;
-    pub mod def;
-    pub mod def_id;
     pub mod dependency_format;
     pub mod effect;
     pub mod entry;
     pub mod free_region;
     pub mod intrinsicck;
-    pub mod infer;
-    pub mod implicator;
     pub mod lang_items;
     pub mod liveness;
     pub mod mem_categorization;
-    pub mod pat_util;
     pub mod privacy;
     pub mod reachable;
     pub mod region;
     pub mod recursion_limit;
     pub mod resolve_lifetime;
     pub mod stability;
-    pub mod subst;
-    pub mod traits;
-    pub mod ty;
     pub mod weak_lang_items;
 }
 
-pub mod mir {
-    pub mod repr;
-    pub mod tcx;
-    pub mod visit;
-}
-
+pub mod mir;
 pub mod session;
-
-pub mod lint;
+pub mod traits;
+pub mod ty;
 
 pub mod util {
-    pub use rustc_back::sha2;
-
     pub mod common;
     pub mod ppaux;
     pub mod nodemap;
     pub mod num;
     pub mod fs;
-}
-
-pub mod lib {
-    pub use llvm;
 }
 
 // A private module so that macro-expanded idents like

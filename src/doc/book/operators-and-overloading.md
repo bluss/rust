@@ -69,7 +69,7 @@ impl Add<i32> for Point {
     type Output = f64;
 
     fn add(self, rhs: i32) -> f64 {
-        // add an i32 to a Point and get an f64
+        // Add an i32 to a Point and get an f64.
 # 1.0
     }
 }
@@ -123,7 +123,7 @@ fn main() {
 For `HasArea` and `Square`, we declare a type parameter `T` and replace
 `f64` with it. The `impl` needs more involved modifications:
 
-```ignore
+```rust,ignore
 impl<T> HasArea<T> for Square<T>
         where T: Mul<Output=T> + Copy { ... }
 ```

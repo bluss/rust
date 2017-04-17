@@ -26,36 +26,36 @@
        issue_tracker_base_url = "https://github.com/rust-lang/rust/issues/",
        test(no_crate_inject, attr(allow(unused_variables), deny(warnings))))]
 
-#![allow(trivial_casts)]
 #![cfg_attr(test, allow(deprecated))] // rand
+#![cfg_attr(not(stage0), deny(warnings))]
 
 #![feature(alloc)]
+#![feature(allow_internal_unstable)]
 #![feature(box_patterns)]
 #![feature(box_syntax)]
+#![cfg_attr(not(test), feature(char_escape_debug))]
 #![feature(core_intrinsics)]
-#![feature(decode_utf16)]
-#![feature(drop_in_place)]
 #![feature(dropck_parametricity)]
+#![feature(exact_size_is_empty)]
 #![feature(fmt_internals)]
-#![feature(fmt_radix)]
+#![feature(fused)]
 #![feature(heap_api)]
-#![feature(iter_arith)]
-#![feature(iter_arith)]
+#![feature(inclusive_range)]
 #![feature(lang_items)]
 #![feature(nonzero)]
-#![feature(num_bits_bytes)]
 #![feature(pattern)]
+#![feature(placement_in)]
+#![feature(placement_new_protocol)]
 #![feature(shared)]
-#![feature(slice_bytes)]
 #![feature(slice_patterns)]
+#![feature(specialization)]
 #![feature(staged_api)]
 #![feature(step_by)]
-#![feature(str_char)]
-#![feature(unboxed_closures)]
+#![feature(trusted_len)]
 #![feature(unicode)]
 #![feature(unique)]
-#![feature(unsafe_no_drop_flag)]
-#![cfg_attr(test, feature(clone_from_slice, rand, test))]
+#![feature(slice_get_slice)]
+#![cfg_attr(test, feature(rand, test))]
 
 #![no_std]
 
@@ -68,13 +68,21 @@ extern crate std;
 #[cfg(test)]
 extern crate test;
 
+#[doc(no_inline)]
 pub use binary_heap::BinaryHeap;
+#[doc(no_inline)]
 pub use btree_map::BTreeMap;
+#[doc(no_inline)]
 pub use btree_set::BTreeSet;
+#[doc(no_inline)]
 pub use linked_list::LinkedList;
+#[doc(no_inline)]
 pub use enum_set::EnumSet;
+#[doc(no_inline)]
 pub use vec_deque::VecDeque;
+#[doc(no_inline)]
 pub use string::String;
+#[doc(no_inline)]
 pub use vec::Vec;
 
 // Needed for the vec! macro
@@ -98,12 +106,14 @@ pub mod vec_deque;
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub mod btree_map {
+    //! A map based on a B-Tree.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub use btree::map::*;
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub mod btree_set {
+    //! A set based on a B-Tree.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub use btree::set::*;
 }
@@ -123,4 +133,11 @@ pub enum Bound<T> {
     Excluded(T),
     /// An infinite endpoint. Indicates that there is no bound in this direction.
     Unbounded,
+}
+
+/// An intermediate trait for specialization of `Extend`.
+#[doc(hidden)]
+trait SpecExtend<I: IntoIterator> {
+    /// Extends `self` with the contents of the given iterator.
+    fn spec_extend(&mut self, iter: I);
 }

@@ -8,12 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Native threads
+//! Native threads.
 //!
 //! ## The threading model
 //!
 //! An executing Rust program consists of a collection of native OS threads,
-//! each with their own stack and local state.
+//! each with their own stack and local state. Threads can be named, and
+//! provide some built-in support for low-level synchronization.
 //!
 //! Communication between threads can be done through
 //! [channels](../../std/sync/mpsc/index.html), Rust's message-passing
@@ -36,20 +37,6 @@
 //! down, even if other threads are still running. However, this module provides
 //! convenient facilities for automatically waiting for the termination of a
 //! child thread (i.e., join).
-//!
-//! ## The `Thread` type
-//!
-//! Threads are represented via the `Thread` type, which you can
-//! get in one of two ways:
-//!
-//! * By spawning a new thread, e.g. using the `thread::spawn` function.
-//! * By requesting the current thread, using the `thread::current` function.
-//!
-//! Threads can be named, and provide some built-in support for low-level
-//! synchronization (described below).
-//!
-//! The `thread::current()` function is available even for threads not spawned
-//! by the APIs of this module.
 //!
 //! ## Spawning a thread
 //!
@@ -99,10 +86,24 @@
 //! });
 //! ```
 //!
+//! ## The `Thread` type
+//!
+//! Threads are represented via the `Thread` type, which you can get in one of
+//! two ways:
+//!
+//! * By spawning a new thread, e.g. using the `thread::spawn` function, and
+//!   calling `thread()` on the `JoinHandle`.
+//! * By requesting the current thread, using the `thread::current` function.
+//!
+//! The `thread::current()` function is available even for threads not spawned
+//! by the APIs of this module.
+//!
 //! ## Blocking support: park and unpark
 //!
 //! Every thread is equipped with some basic low-level blocking support, via the
-//! `park` and `unpark` functions.
+//! `thread::park()` function and `thread::Thread::unpark()` method. `park()`
+//! blocks the current thread, which can then be resumed from another thread by
+//! calling the `unpark()` method on the blocked thread's handle.
 //!
 //! Conceptually, each `Thread` handle has an associated token, which is
 //! initially not present:
@@ -134,42 +135,39 @@
 //!
 //! ## Thread-local storage
 //!
-//! This module also provides an implementation of thread local storage for Rust
-//! programs. Thread local storage is a method of storing data into a global
-//! variable which each thread in the program will have its own copy of.
+//! This module also provides an implementation of thread-local storage for Rust
+//! programs. Thread-local storage is a method of storing data into a global
+//! variable that each thread in the program will have its own copy of.
 //! Threads do not share this data, so accesses do not need to be synchronized.
 //!
-//! At a high level, this module provides two variants of storage:
-//!
-//! * Owned thread-local storage. This is a type of thread local key which
-//!   owns the value that it contains, and will destroy the value when the
-//!   thread exits. This variant is created with the `thread_local!` macro and
-//!   can contain any value which is `'static` (no borrowed pointers).
-//!
-//! * Scoped thread-local storage. This type of key is used to store a reference
-//!   to a value into local storage temporarily for the scope of a function
-//!   call. There are no restrictions on what types of values can be placed
-//!   into this key.
-//!
-//! Both forms of thread local storage provide an accessor function, `with`,
-//! which will yield a shared reference to the value to the specified
-//! closure. Thread-local keys only allow shared access to values as there is no
-//! way to guarantee uniqueness if a mutable borrow was allowed. Most values
+//! A thread-local key owns the value it contains and will destroy the value when the
+//! thread exits. It is created with the [`thread_local!`] macro and can contain any
+//! value that is `'static` (no borrowed pointers). It provides an accessor function,
+//! [`with`], that yields a shared reference to the value to the specified
+//! closure. Thread-local keys allow only shared access to values, as there would be no
+//! way to guarantee uniqueness if mutable borrows were allowed. Most values
 //! will want to make use of some form of **interior mutability** through the
-//! `Cell` or `RefCell` types.
+//! [`Cell`] or [`RefCell`] types.
+//!
+//! [`Cell`]: ../cell/struct.Cell.html
+//! [`RefCell`]: ../cell/struct.RefCell.html
+//! [`thread_local!`]: ../macro.thread_local.html
+//! [`with`]: struct.LocalKey.html#method.with
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use prelude::v1::*;
-
 use any::Any;
 use cell::UnsafeCell;
+use ffi::{CStr, CString};
 use fmt;
 use io;
+use panic;
+use panicking;
+use str;
 use sync::{Mutex, Condvar, Arc};
 use sys::thread as imp;
+use sys_common::mutex;
 use sys_common::thread_info;
-use sys_common::unwind;
 use sys_common::util;
 use sys_common::{AsInner, IntoInner};
 use time::Duration;
@@ -179,24 +177,24 @@ use time::Duration;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[macro_use] mod local;
-#[macro_use] mod scoped_tls;
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::local::{LocalKey, LocalKeyState};
 
-#[unstable(feature = "scoped_tls",
-           reason = "scoped TLS has yet to have wide enough use to fully \
-                     consider stabilizing its interface",
-           issue = "27715")]
-pub use self::scoped_tls::ScopedKey;
+// The types used by the thread_local! macro to access TLS keys. Note that there
+// are two types, the "OS" type and the "fast" type. The OS thread local key
+// type is accessed via platform-specific API calls and is slow, while the fast
+// key type is accessed via code generated via LLVM, where TLS keys are set up
+// by the elf linker. Note that the OS TLS type is always available: on macOS
+// the standard library is compiled with support for older platform versions
+// where fast TLS was not available; end-user code is compiled with fast TLS
+// where available, but both are needed.
 
 #[unstable(feature = "libstd_thread_internals", issue = "0")]
 #[cfg(target_thread_local)]
-#[doc(hidden)] pub use self::local::elf::Key as __ElfLocalKeyInner;
+#[doc(hidden)] pub use sys::fast_thread_local::Key as __FastLocalKeyInner;
 #[unstable(feature = "libstd_thread_internals", issue = "0")]
 #[doc(hidden)] pub use self::local::os::Key as __OsLocalKeyInner;
-#[unstable(feature = "libstd_thread_internals", issue = "0")]
-#[doc(hidden)] pub use self::scoped_tls::__KeyInner as __ScopedKeyInner;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Builder
@@ -225,6 +223,21 @@ impl Builder {
 
     /// Names the thread-to-be. Currently the name is used for identification
     /// only in panic messages.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::thread;
+    ///
+    /// let builder = thread::Builder::new()
+    ///     .name("foo".into());
+    ///
+    /// let handler = builder.spawn(|| {
+    ///     assert_eq!(thread::current().name(), Some("foo"))
+    /// }).unwrap();
+    ///
+    /// handler.join().unwrap();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn name(mut self, name: String) -> Builder {
         self.name = Some(name);
@@ -266,25 +279,19 @@ impl Builder {
         let their_packet = my_packet.clone();
 
         let main = move || {
-            if let Some(name) = their_thread.name() {
+            if let Some(name) = their_thread.cname() {
                 imp::Thread::set_name(name);
             }
             unsafe {
                 thread_info::set(imp::guard::current(), their_thread);
-                let mut output = None;
-                let try_result = {
-                    let ptr = &mut output;
-                    unwind::try(move || *ptr = Some(f()))
-                };
-                *their_packet.get() = Some(try_result.map(|()| {
-                    output.unwrap()
-                }));
+                let try_result = panic::catch_unwind(panic::AssertUnwindSafe(f));
+                *their_packet.get() = Some(try_result);
             }
         };
 
         Ok(JoinHandle(JoinInner {
             native: unsafe {
-                Some(try!(imp::Thread::new(stack_size, Box::new(main))))
+                Some(imp::Thread::new(stack_size, Box::new(main))?)
             },
             thread: my_thread,
             packet: Packet(my_packet),
@@ -318,6 +325,24 @@ pub fn spawn<F, T>(f: F) -> JoinHandle<T> where
 }
 
 /// Gets a handle to the thread that invokes it.
+///
+/// #Examples
+///
+/// Getting a handle to the current thread with `thread::current()`:
+///
+/// ```
+/// use std::thread;
+///
+/// let handler = thread::Builder::new()
+///     .name("named thread".into())
+///     .spawn(|| {
+///         let handle = thread::current();
+///         assert_eq!(handle.name(), Some("named thread"));
+///     })
+///     .unwrap();
+///
+/// handler.join().unwrap();
+/// ```
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn current() -> Thread {
     thread_info::current_thread().expect("use of std::thread::current() is not \
@@ -332,44 +357,39 @@ pub fn yield_now() {
 }
 
 /// Determines whether the current thread is unwinding because of panic.
+///
+/// # Examples
+///
+/// ```rust,should_panic
+/// use std::thread;
+///
+/// struct SomeStruct;
+///
+/// impl Drop for SomeStruct {
+///     fn drop(&mut self) {
+///         if thread::panicking() {
+///             println!("dropped while unwinding");
+///         } else {
+///             println!("dropped while not unwinding");
+///         }
+///     }
+/// }
+///
+/// {
+///     print!("a: ");
+///     let a = SomeStruct;
+/// }
+///
+/// {
+///     print!("b: ");
+///     let b = SomeStruct;
+///     panic!()
+/// }
+/// ```
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn panicking() -> bool {
-    unwind::panicking()
-}
-
-/// Invokes a closure, capturing the cause of panic if one occurs.
-///
-/// This function will return `Ok` with the closure's result if the closure
-/// does not panic, and will return `Err(cause)` if the closure panics. The
-/// `cause` returned is the object with which panic was originally invoked.
-///
-/// It is currently undefined behavior to unwind from Rust code into foreign
-/// code, so this function is particularly useful when Rust is called from
-/// another language (normally C). This can run arbitrary Rust code, capturing a
-/// panic and allowing a graceful handling of the error.
-///
-/// It is **not** recommended to use this function for a general try/catch
-/// mechanism. The `Result` type is more appropriate to use for functions that
-/// can fail on a regular basis.
-///
-/// The closure provided is required to adhere to the `'static` bound to ensure
-/// that it cannot reference data in the parent stack frame, mitigating problems
-/// with exception safety. Furthermore, a `Send` bound is also required,
-/// providing the same safety guarantees as `thread::spawn` (ensuring the
-/// closure is properly isolated from the parent).
-#[unstable(feature = "catch_panic", reason = "recent API addition",
-           issue = "27719")]
-#[rustc_deprecated(since = "1.6.0", reason = "renamed to std::panic::recover")]
-pub fn catch_panic<F, R>(f: F) -> Result<R>
-    where F: FnOnce() -> R + Send + 'static
-{
-    let mut result = None;
-    unsafe {
-        let result = &mut result;
-        try!(unwind::try(move || *result = Some(f())))
-    }
-    Ok(result.unwrap())
+    panicking::panicking()
 }
 
 /// Puts the current thread to sleep for the specified amount of time.
@@ -395,6 +415,19 @@ pub fn sleep_ms(ms: u32) {
 /// signal being received or a spurious wakeup. Platforms which do not support
 /// nanosecond precision for sleeping will have `dur` rounded up to the nearest
 /// granularity of time they can sleep for.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use std::{thread, time};
+///
+/// let ten_millis = time::Duration::from_millis(10);
+/// let now = time::Instant::now();
+///
+/// thread::sleep(ten_millis);
+///
+/// assert!(now.elapsed() >= ten_millis);
+/// ```
 #[stable(feature = "thread_sleep", since = "1.4.0")]
 pub fn sleep(dur: Duration) {
     imp::Thread::sleep(dur)
@@ -435,16 +468,21 @@ pub fn park() {
     *guard = false;
 }
 
+/// Use [park_timeout].
+///
 /// Blocks unless or until the current thread's token is made available or
 /// the specified duration has been reached (may wake spuriously).
 ///
 /// The semantics of this function are equivalent to `park()` except that the
-/// thread will be blocked for roughly no longer than *ms*. This method
+/// thread will be blocked for roughly no longer than `ms`. This method
 /// should not be used for precise timing due to anomalies such as
 /// preemption or platform differences that may not cause the maximum
-/// amount of time waited to be precisely *ms* long.
+/// amount of time waited to be precisely `ms` long.
 ///
-/// See the module doc for more detail.
+/// See the [module documentation][thread] for more detail.
+///
+/// [thread]: index.html
+/// [park_timeout]: fn.park_timeout.html
 #[stable(feature = "rust1", since = "1.0.0")]
 #[rustc_deprecated(since = "1.6.0", reason = "replaced by `std::thread::park_timeout`")]
 pub fn park_timeout_ms(ms: u32) {
@@ -455,10 +493,10 @@ pub fn park_timeout_ms(ms: u32) {
 /// the specified duration has been reached (may wake spuriously).
 ///
 /// The semantics of this function are equivalent to `park()` except that the
-/// thread will be blocked for roughly no longer than *dur*. This method
+/// thread will be blocked for roughly no longer than `dur`. This method
 /// should not be used for precise timing due to anomalies such as
 /// preemption or platform differences that may not cause the maximum
-/// amount of time waited to be precisely *dur* long.
+/// amount of time waited to be precisely `dur` long.
 ///
 /// See the module doc for more detail.
 ///
@@ -466,6 +504,25 @@ pub fn park_timeout_ms(ms: u32) {
 ///
 /// Platforms which do not support nanosecond precision for sleeping will have
 /// `dur` rounded up to the nearest granularity of time they can sleep for.
+///
+/// # Example
+///
+/// Waiting for the complete expiration of the timeout:
+///
+/// ```rust,no_run
+/// use std::thread::park_timeout;
+/// use std::time::{Instant, Duration};
+///
+/// let timeout = Duration::from_secs(2);
+/// let beginning_park = Instant::now();
+/// park_timeout(timeout);
+///
+/// while beginning_park.elapsed() < timeout {
+///     println!("restarting park_timeout after {:?}", beginning_park.elapsed());
+///     let timeout = timeout - beginning_park.elapsed();
+///     park_timeout(timeout);
+/// }
+/// ```
 #[stable(feature = "park_timeout", since = "1.4.0")]
 pub fn park_timeout(dur: Duration) {
     let thread = current();
@@ -478,12 +535,52 @@ pub fn park_timeout(dur: Duration) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// ThreadId
+////////////////////////////////////////////////////////////////////////////////
+
+/// A unique identifier for a running thread.
+///
+/// A `ThreadId` is an opaque object that has a unique value for each thread
+/// that creates one. `ThreadId`s do not correspond to a thread's system-
+/// designated identifier.
+#[unstable(feature = "thread_id", issue = "21507")]
+#[derive(Eq, PartialEq, Copy, Clone)]
+pub struct ThreadId(u64);
+
+impl ThreadId {
+    // Generate a new unique thread ID.
+    fn new() -> ThreadId {
+        static GUARD: mutex::Mutex = mutex::Mutex::new();
+        static mut COUNTER: u64 = 0;
+
+        unsafe {
+            GUARD.lock();
+
+            // If we somehow use up all our bits, panic so that we're not
+            // covering up subtle bugs of IDs being reused.
+            if COUNTER == ::u64::MAX {
+                GUARD.unlock();
+                panic!("failed to generate unique thread ID: bitspace exhausted");
+            }
+
+            let id = COUNTER;
+            COUNTER += 1;
+
+            GUARD.unlock();
+
+            ThreadId(id)
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Thread
 ////////////////////////////////////////////////////////////////////////////////
 
 /// The internal representation of a `Thread` handle
 struct Inner {
-    name: Option<String>,
+    name: Option<CString>,      // Guaranteed to be UTF-8
+    id: ThreadId,
     lock: Mutex<bool>,          // true when there is a buffered unpark
     cvar: Condvar,
 }
@@ -498,9 +595,13 @@ pub struct Thread {
 impl Thread {
     // Used only internally to construct a thread object without spawning
     fn new(name: Option<String>) -> Thread {
+        let cname = name.map(|n| {
+            CString::new(n).expect("thread name may not contain interior null bytes")
+        });
         Thread {
             inner: Arc::new(Inner {
-                name: name,
+                name: cname,
+                id: ThreadId::new(),
                 lock: Mutex::new(false),
                 cvar: Condvar::new(),
             })
@@ -519,9 +620,50 @@ impl Thread {
         }
     }
 
+    /// Gets the thread's unique identifier.
+    #[unstable(feature = "thread_id", issue = "21507")]
+    pub fn id(&self) -> ThreadId {
+        self.inner.id
+    }
+
     /// Gets the thread's name.
+    ///
+    /// # Examples
+    ///
+    /// Threads by default have no name specified:
+    ///
+    /// ```
+    /// use std::thread;
+    ///
+    /// let builder = thread::Builder::new();
+    ///
+    /// let handler = builder.spawn(|| {
+    ///     assert!(thread::current().name().is_none());
+    /// }).unwrap();
+    ///
+    /// handler.join().unwrap();
+    /// ```
+    ///
+    /// Thread with a specified name:
+    ///
+    /// ```
+    /// use std::thread;
+    ///
+    /// let builder = thread::Builder::new()
+    ///     .name("foo".into());
+    ///
+    /// let handler = builder.spawn(|| {
+    ///     assert_eq!(thread::current().name(), Some("foo"))
+    /// }).unwrap();
+    ///
+    /// handler.join().unwrap();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn name(&self) -> Option<&str> {
+        self.cname().map(|s| unsafe { str::from_utf8_unchecked(s.to_bytes()) } )
+    }
+
+    fn cname(&self) -> Option<&CStr> {
         self.inner.name.as_ref().map(|s| &**s)
     }
 }
@@ -588,6 +730,36 @@ impl<T> JoinInner<T> {
 /// Due to platform restrictions, it is not possible to `Clone` this
 /// handle: the ability to join a child thread is a uniquely-owned
 /// permission.
+///
+/// This `struct` is created by the [`thread::spawn`] function and the
+/// [`thread::Builder::spawn`] method.
+///
+/// # Examples
+///
+/// Creation from [`thread::spawn`]:
+///
+/// ```rust
+/// use std::thread;
+///
+/// let join_handle: thread::JoinHandle<_> = thread::spawn(|| {
+///     // some work here
+/// });
+/// ```
+///
+/// Creation from [`thread::Builder::spawn`]:
+///
+/// ```rust
+/// use std::thread;
+///
+/// let builder = thread::Builder::new();
+///
+/// let join_handle: thread::JoinHandle<_> = builder.spawn(|| {
+///     // some work here
+/// }).unwrap();
+/// ```
+///
+/// [`thread::spawn`]: fn.spawn.html
+/// [`thread::Builder::spawn`]: struct.Builder.html#method.spawn
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct JoinHandle<T>(JoinInner<T>);
 
@@ -626,10 +798,8 @@ fn _assert_sync_and_send() {
 // Tests
 ////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "emscripten")))]
 mod tests {
-    use prelude::v1::*;
-
     use any::Any;
     use sync::mpsc::{channel, Sender};
     use result;
@@ -656,6 +826,12 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_invalid_named_thread() {
+        let _ = Builder::new().name("ada l\0velace".to_string()).spawn(|| {});
+    }
+
+    #[test]
     fn test_run_basic() {
         let (tx, rx) = channel();
         thread::spawn(move|| {
@@ -676,8 +852,6 @@ mod tests {
 
     #[test]
     fn test_spawn_sched() {
-        use clone::Clone;
-
         let (tx, rx) = channel();
 
         fn f(i: i32, tx: Sender<()>) {
@@ -858,6 +1032,17 @@ mod tests {
     #[test]
     fn sleep_ms_smoke() {
         thread::sleep(Duration::from_millis(2));
+    }
+
+    #[test]
+    fn test_thread_id_equal() {
+        assert!(thread::current().id() == thread::current().id());
+    }
+
+    #[test]
+    fn test_thread_id_not_equal() {
+        let spawned_id = thread::spawn(|| thread::current().id()).join().unwrap();
+        assert!(thread::current().id() != spawned_id);
     }
 
     // NOTE: the corresponding test for stderr is in run-pass/thread-stderr, due

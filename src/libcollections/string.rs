@@ -14,24 +14,25 @@
 //! [`ToString`]s, and several error types that may result from working with
 //! [`String`]s.
 //!
-//! [`String`]: struct.String.html
 //! [`ToString`]: trait.ToString.html
 //!
 //! # Examples
 //!
-//! There are multiple ways to create a new `String` from a string literal:
+//! There are multiple ways to create a new [`String`] from a string literal:
 //!
-//! ```rust
+//! ```
 //! let s = "Hello".to_string();
 //!
 //! let s = String::from("world");
 //! let s: String = "also this".into();
 //! ```
 //!
-//! You can create a new `String` from an existing one by concatenating with
+//! You can create a new [`String`] from an existing one by concatenating with
 //! `+`:
 //!
-//! ```rust
+//! [`String`]: struct.String.html
+//!
+//! ```
 //! let s = "Hello".to_string();
 //!
 //! let message = s + " world!";
@@ -40,7 +41,7 @@
 //! If you have a vector of valid UTF-8 bytes, you can make a `String` out of
 //! it. You can do the reverse too.
 //!
-//! ```rust
+//! ```
 //! let sparkle_heart = vec![240, 159, 146, 150];
 //!
 //! // We know these bytes are valid, so we'll use `unwrap()`.
@@ -57,17 +58,15 @@
 
 use core::fmt;
 use core::hash;
-use core::iter::FromIterator;
+use core::iter::{FromIterator, FusedIterator};
 use core::mem;
-use core::ops::{self, Add};
+use core::ops::{self, Add, AddAssign, Index, IndexMut};
 use core::ptr;
-use core::slice;
 use core::str::pattern::Pattern;
 use rustc_unicode::char::{decode_utf16, REPLACEMENT_CHARACTER};
 use rustc_unicode::str as unicode_str;
 
-#[allow(deprecated)]
-use borrow::{Cow, IntoCow};
+use borrow::{Cow, ToOwned};
 use range::RangeArgument;
 use str::{self, FromStr, Utf8Error, Chars};
 use vec::Vec;
@@ -79,7 +78,7 @@ use boxed::Box;
 /// contents of the string. It has a close relationship with its borrowed
 /// counterpart, the primitive [`str`].
 ///
-/// [`str`]: ../primitive.str.html
+/// [`str`]: ../../std/primitive.str.html
 ///
 /// # Examples
 ///
@@ -99,7 +98,7 @@ use boxed::Box;
 /// hello.push_str("orld!");
 /// ```
 ///
-/// [`char`]: ../primitive.char.html
+/// [`char`]: ../../std/primitive.char.html
 /// [`push()`]: #method.push
 /// [`push_str()`]: #method.push_str
 ///
@@ -131,15 +130,15 @@ use boxed::Box;
 /// println!("The first letter of s is {}", s[0]); // ERROR!!!
 /// ```
 ///
-/// [`OsString`]: ../ffi/struct.OsString.html
+/// [`OsString`]: ../../std/ffi/struct.OsString.html
 ///
 /// Indexing is intended to be a constant-time operation, but UTF-8 encoding
-/// does not allow us to do this. Furtheremore, it's not clear what sort of
+/// does not allow us to do this. Furthermore, it's not clear what sort of
 /// thing the index should return: a byte, a codepoint, or a grapheme cluster.
-/// The [`as_bytes()`] and [`chars()`] methods return iterators over the first
+/// The [`bytes()`] and [`chars()`] methods return iterators over the first
 /// two, respectively.
 ///
-/// [`as_bytes()`]: #method.as_bytes
+/// [`bytes()`]: #method.bytes
 /// [`chars()`]: #method.chars
 ///
 /// # Deref
@@ -156,8 +155,8 @@ use boxed::Box;
 /// takes_str(&s);
 /// ```
 ///
-/// [`&str`]: ../primitive.str.html
-/// [`Deref`]: ../ops/trait.Deref.html
+/// [`&str`]: ../../std/primitive.str.html
+/// [`Deref`]: ../../std/ops/trait.Deref.html
 ///
 /// This will create a [`&str`] from the `String` and pass it in. This
 /// conversion is very inexpensive, and so generally, functions will accept
@@ -186,14 +185,14 @@ use boxed::Box;
 /// let len = story.len();
 /// let capacity = story.capacity();
 ///
-/// // story has thirteen bytes
+/// // story has nineteen bytes
 /// assert_eq!(19, len);
 ///
 /// // Now that we have our parts, we throw the story away.
 /// mem::forget(story);
 ///
 /// // We can re-build a String out of ptr, len, and capacity. This is all
-/// // unsafe becuase we are responsible for making sure the components are
+/// // unsafe because we are responsible for making sure the components are
 /// // valid:
 /// let s = unsafe { String::from_raw_parts(ptr as *mut _, len, capacity) } ;
 ///
@@ -280,10 +279,10 @@ pub struct String {
 /// an analogue to `FromUtf8Error`, and you can get one from a `FromUtf8Error`
 /// through the [`utf8_error()`] method.
 ///
-/// [`Utf8Error`]: ../str/struct.Utf8Error.html
-/// [`std::str`]: ../str/index.html
-/// [`u8`]: ../primitive.u8.html
-/// [`&str`]: ../primitive.str.html
+/// [`Utf8Error`]: ../../std/str/struct.Utf8Error.html
+/// [`std::str`]: ../../std/str/index.html
+/// [`u8`]: ../../std/primitive.u8.html
+/// [`&str`]: ../../std/primitive.str.html
 /// [`utf8_error()`]: #method.utf8_error
 ///
 /// # Examples
@@ -414,9 +413,9 @@ impl String {
     /// requires that it is valid UTF-8. `from_utf8()` checks to ensure that
     /// the bytes are valid UTF-8, and then does the conversion.
     ///
-    /// [`&str`]: ../primitive.str.html
-    /// [`u8`]: ../primitive.u8.html
-    /// [`Vec<u8>`]: ../vec/struct.Vec.html
+    /// [`&str`]: ../../std/primitive.str.html
+    /// [`u8`]: ../../std/primitive.u8.html
+    /// [`Vec<u8>`]: ../../std/vec/struct.Vec.html
     ///
     /// If you are sure that the byte slice is valid UTF-8, and you don't want
     /// to incur the overhead of the validity check, there is an unsafe version
@@ -431,9 +430,9 @@ impl String {
     /// If you need a `&str` instead of a `String`, consider
     /// [`str::from_utf8()`].
     ///
-    /// [`str::from_utf8()`]: ../str/fn.from_utf8.html
+    /// [`str::from_utf8()`]: ../../std/str/fn.from_utf8.html
     ///
-    /// # Failure
+    /// # Errors
     ///
     /// Returns `Err` if the slice is not UTF-8 with a description as to why the
     /// provided bytes are not UTF-8. The vector you moved in is also included.
@@ -479,18 +478,17 @@ impl String {
         }
     }
 
-    /// Converts a slice of bytes to a `String`, including invalid characters.
+    /// Converts a slice of bytes to a string, including invalid characters.
     ///
-    /// A string slice ([`&str`]) is made of bytes ([`u8`]), and a slice of
-    /// bytes ([`&[u8]`][byteslice]) is made of bytes, so this function converts between
-    /// the two. Not all byte slices are valid string slices, however: [`&str`]
-    /// requires that it is valid UTF-8. During this conversion,
+    /// Strings are made of bytes ([`u8`]), and a slice of bytes
+    /// ([`&[u8]`][byteslice]) is made of bytes, so this function converts
+    /// between the two. Not all byte slices are valid strings, however: strings
+    /// are required to be valid UTF-8. During this conversion,
     /// `from_utf8_lossy()` will replace any invalid UTF-8 sequences with
     /// `U+FFFD REPLACEMENT CHARACTER`, which looks like this: �
     ///
-    /// [`&str`]: ../primitive.str.html
-    /// [`u8`]: ../primitive.u8.html
-    /// [byteslice]: ../primitive.slice.html
+    /// [`u8`]: ../../std/primitive.u8.html
+    /// [byteslice]: ../../std/primitive.slice.html
     ///
     /// If you are sure that the byte slice is valid UTF-8, and you don't want
     /// to incur the overhead of the conversion, there is an unsafe version
@@ -499,10 +497,13 @@ impl String {
     ///
     /// [`from_utf8_unchecked()`]: struct.String.html#method.from_utf8_unchecked
     ///
-    /// If you need a [`&str`] instead of a `String`, consider
-    /// [`str::from_utf8()`].
+    /// This function returns a [`Cow<'a, str>`]. If our byte slice is invalid
+    /// UTF-8, then we need to insert the replacement characters, which will
+    /// change the size of the string, and hence, require a `String`. But if
+    /// it's already valid UTF-8, we don't need a new allocation. This return
+    /// type allows us to handle both cases.
     ///
-    /// [`str::from_utf8()`]: ../str/fn.from_utf8.html
+    /// [`Cow<'a, str>`]: ../../std/borrow/enum.Cow.html
     ///
     /// # Examples
     ///
@@ -512,8 +513,7 @@ impl String {
     /// // some bytes, in a vector
     /// let sparkle_heart = vec![240, 159, 146, 150];
     ///
-    /// // We know these bytes are valid, so we'll use `unwrap()`.
-    /// let sparkle_heart = String::from_utf8(sparkle_heart).unwrap();
+    /// let sparkle_heart = String::from_utf8_lossy(&sparkle_heart);
     ///
     /// assert_eq!("💖", sparkle_heart);
     /// ```
@@ -641,7 +641,7 @@ impl String {
         Cow::Owned(res)
     }
 
-    /// Decode a UTF-16 encoded vector `v` into a `String`, returning `None`
+    /// Decode a UTF-16 encoded vector `v` into a `String`, returning `Err`
     /// if `v` contains any invalid data.
     ///
     /// # Examples
@@ -701,6 +701,12 @@ impl String {
     ///
     /// Violating these may cause problems like corrupting the allocator's
     /// internal datastructures.
+    ///
+    /// The ownership of `ptr` is effectively transferred to the
+    /// `String` which may then deallocate, reallocate or change the
+    /// contents of memory pointed to by the pointer at will. Ensure
+    /// that nothing else uses the pointer after calling this
+    /// function.
     ///
     /// # Examples
     ///
@@ -970,22 +976,7 @@ impl String {
     pub fn push(&mut self, ch: char) {
         match ch.len_utf8() {
             1 => self.vec.push(ch as u8),
-            ch_len => {
-                let cur_len = self.len();
-                // This may use up to 4 bytes.
-                self.vec.reserve(ch_len);
-
-                unsafe {
-                    // Attempt to not use an intermediate buffer by just pushing bytes
-                    // directly onto this string.
-                    let slice = slice::from_raw_parts_mut(self.vec
-                                                              .as_mut_ptr()
-                                                              .offset(cur_len as isize),
-                                                          ch_len);
-                    let used = ch.encode_utf8(slice).unwrap_or(0);
-                    self.vec.set_len(cur_len + used);
-                }
-            }
+            _ => self.vec.extend_from_slice(ch.encode_utf8(&mut [0;4]).as_bytes()),
         }
     }
 
@@ -1008,12 +999,14 @@ impl String {
 
     /// Shortens this `String` to the specified length.
     ///
+    /// If `new_len` is greater than the string's current length, this has no
+    /// effect.
+    ///
     /// # Panics
     ///
-    /// Panics if `new_len` > current length, or if `new_len` does not lie on a
-    /// [`char`] boundary.
+    /// Panics if `new_len` does not lie on a [`char`] boundary.
     ///
-    /// [`char`]: ../primitive.char.html
+    /// [`char`]: ../../std/primitive.char.html
     ///
     /// # Examples
     ///
@@ -1029,8 +1022,10 @@ impl String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn truncate(&mut self, new_len: usize) {
-        assert!(self.is_char_boundary(new_len));
-        self.vec.truncate(new_len)
+        if new_len <= self.len() {
+            assert!(self.is_char_boundary(new_len));
+            self.vec.truncate(new_len)
+        }
     }
 
     /// Removes the last character from the string buffer and returns it.
@@ -1053,14 +1048,13 @@ impl String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn pop(&mut self) -> Option<char> {
-        let len = self.len();
-        if len == 0 {
-            return None;
-        }
-
-        let ch = self.char_at_reverse(len);
+        let ch = match self.chars().rev().next() {
+            Some(ch) => ch,
+            None => return None,
+        };
+        let newlen = self.len() - ch.len_utf8();
         unsafe {
-            self.vec.set_len(len - ch.len_utf8());
+            self.vec.set_len(newlen);
         }
         Some(ch)
     }
@@ -1075,7 +1069,7 @@ impl String {
     /// Panics if `idx` is larger than or equal to the `String`'s length,
     /// or if it does not lie on a [`char`] boundary.
     ///
-    /// [`char`]: ../primitive.char.html
+    /// [`char`]: ../../std/primitive.char.html
     ///
     /// # Examples
     ///
@@ -1091,11 +1085,13 @@ impl String {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn remove(&mut self, idx: usize) -> char {
-        let len = self.len();
-        assert!(idx < len);
+        let ch = match self[idx..].chars().next() {
+            Some(ch) => ch,
+            None => panic!("cannot remove a char from the end of a string"),
+        };
 
-        let ch = self.char_at(idx);
         let next = idx + ch.len_utf8();
+        let len = self.len();
         unsafe {
             ptr::copy(self.vec.as_ptr().offset(next as isize),
                       self.vec.as_mut_ptr().offset(idx as isize),
@@ -1115,7 +1111,7 @@ impl String {
     /// Panics if `idx` is larger than the `String`'s length, or if it does not
     /// lie on a [`char`] boundary.
     ///
-    /// [`char`]: ../primitive.char.html
+    /// [`char`]: ../../std/primitive.char.html
     ///
     /// # Examples
     ///
@@ -1136,18 +1132,63 @@ impl String {
         let len = self.len();
         assert!(idx <= len);
         assert!(self.is_char_boundary(idx));
-        self.vec.reserve(4);
         let mut bits = [0; 4];
-        let amt = ch.encode_utf8(&mut bits).unwrap();
+        let bits = ch.encode_utf8(&mut bits).as_bytes();
 
         unsafe {
-            ptr::copy(self.vec.as_ptr().offset(idx as isize),
-                      self.vec.as_mut_ptr().offset((idx + amt) as isize),
-                      len - idx);
-            ptr::copy(bits.as_ptr(),
-                      self.vec.as_mut_ptr().offset(idx as isize),
-                      amt);
-            self.vec.set_len(len + amt);
+            self.insert_bytes(idx, bits);
+        }
+    }
+
+    unsafe fn insert_bytes(&mut self, idx: usize, bytes: &[u8]) {
+        let len = self.len();
+        let amt = bytes.len();
+        self.vec.reserve(amt);
+
+        ptr::copy(self.vec.as_ptr().offset(idx as isize),
+                  self.vec.as_mut_ptr().offset((idx + amt) as isize),
+                  len - idx);
+        ptr::copy(bytes.as_ptr(),
+                  self.vec.as_mut_ptr().offset(idx as isize),
+                  amt);
+        self.vec.set_len(len + amt);
+    }
+
+    /// Inserts a string slice into this `String` at a byte position.
+    ///
+    /// This is an `O(n)` operation as it requires copying every element in the
+    /// buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx` is larger than the `String`'s length, or if it does not
+    /// lie on a [`char`] boundary.
+    ///
+    /// [`char`]: ../../std/primitive.char.html
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// #![feature(insert_str)]
+    ///
+    /// let mut s = String::from("bar");
+    ///
+    /// s.insert_str(0, "foo");
+    ///
+    /// assert_eq!("foobar", s);
+    /// ```
+    #[inline]
+    #[unstable(feature = "insert_str",
+               reason = "recent addition",
+               issue = "35553")]
+    pub fn insert_str(&mut self, idx: usize, string: &str) {
+        assert!(idx <= self.len());
+        assert!(self.is_char_boundary(idx));
+
+        unsafe {
+            self.insert_bytes(idx, string.as_bytes());
         }
     }
 
@@ -1219,6 +1260,39 @@ impl String {
         self.len() == 0
     }
 
+    /// Divide one string into two at an index.
+    ///
+    /// The argument, `mid`, should be a byte offset from the start of the string. It must also
+    /// be on the boundary of a UTF-8 code point.
+    ///
+    /// The two strings returned go from the start of the string to `mid`, and from `mid` to the end
+    /// of the string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mid` is not on a `UTF-8` code point boundary, or if it is beyond the last
+    /// code point of the string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(string_split_off)]
+    /// # fn main() {
+    /// let mut hello = String::from("Hello, World!");
+    /// let world = hello.split_off(7);
+    /// assert_eq!(hello, "Hello, ");
+    /// assert_eq!(world, "World!");
+    /// # }
+    /// ```
+    #[inline]
+    #[unstable(feature = "string_split_off", issue = "38080")]
+    pub fn split_off(&mut self, mid: usize) -> String {
+        assert!(self.is_char_boundary(mid));
+        assert!(mid <= self.len());
+        let other = self.vec.split_off(mid);
+        unsafe { String::from_utf8_unchecked(other) }
+    }
+
     /// Truncates this `String`, removing all contents.
     ///
     /// While this means the `String` will have a length of zero, it does not
@@ -1254,7 +1328,7 @@ impl String {
     /// Panics if the starting point or end point do not lie on a [`char`]
     /// boundary, or if they're out of bounds.
     ///
-    /// [`char`]: ../primitive.char.html
+    /// [`char`]: ../../std/primitive.char.html
     ///
     /// # Examples
     ///
@@ -1352,10 +1426,10 @@ impl FromUtf8Error {
     /// an analogue to `FromUtf8Error`. See its documentation for more details
     /// on using it.
     ///
-    /// [`Utf8Error`]: ../str/struct.Utf8Error.html
-    /// [`std::str`]: ../str/index.html
-    /// [`u8`]: ../primitive.u8.html
-    /// [`&str`]: ../primitive.str.html
+    /// [`Utf8Error`]: ../../std/str/struct.Utf8Error.html
+    /// [`std::str`]: ../../std/str/index.html
+    /// [`u8`]: ../../std/primitive.u8.html
+    /// [`&str`]: ../../std/primitive.str.html
     ///
     /// # Examples
     ///
@@ -1403,35 +1477,35 @@ impl Clone for String {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl FromIterator<char> for String {
-    fn from_iter<I: IntoIterator<Item = char>>(iterable: I) -> String {
+    fn from_iter<I: IntoIterator<Item = char>>(iter: I) -> String {
         let mut buf = String::new();
-        buf.extend(iterable);
+        buf.extend(iter);
         buf
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> FromIterator<&'a str> for String {
-    fn from_iter<I: IntoIterator<Item = &'a str>>(iterable: I) -> String {
+    fn from_iter<I: IntoIterator<Item = &'a str>>(iter: I) -> String {
         let mut buf = String::new();
-        buf.extend(iterable);
+        buf.extend(iter);
         buf
     }
 }
 
 #[stable(feature = "extend_string", since = "1.4.0")]
 impl FromIterator<String> for String {
-    fn from_iter<I: IntoIterator<Item = String>>(iterable: I) -> String {
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> String {
         let mut buf = String::new();
-        buf.extend(iterable);
+        buf.extend(iter);
         buf
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Extend<char> for String {
-    fn extend<I: IntoIterator<Item = char>>(&mut self, iterable: I) {
-        let iterator = iterable.into_iter();
+    fn extend<I: IntoIterator<Item = char>>(&mut self, iter: I) {
+        let iterator = iter.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.reserve(lower_bound);
         for ch in iterator {
@@ -1442,15 +1516,15 @@ impl Extend<char> for String {
 
 #[stable(feature = "extend_ref", since = "1.2.0")]
 impl<'a> Extend<&'a char> for String {
-    fn extend<I: IntoIterator<Item = &'a char>>(&mut self, iterable: I) {
-        self.extend(iterable.into_iter().cloned());
+    fn extend<I: IntoIterator<Item = &'a char>>(&mut self, iter: I) {
+        self.extend(iter.into_iter().cloned());
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> Extend<&'a str> for String {
-    fn extend<I: IntoIterator<Item = &'a str>>(&mut self, iterable: I) {
-        for s in iterable {
+    fn extend<I: IntoIterator<Item = &'a str>>(&mut self, iter: I) {
+        for s in iter {
             self.push_str(s)
         }
     }
@@ -1458,8 +1532,8 @@ impl<'a> Extend<&'a str> for String {
 
 #[stable(feature = "extend_string", since = "1.4.0")]
 impl Extend<String> for String {
-    fn extend<I: IntoIterator<Item = String>>(&mut self, iterable: I) {
-        for s in iterable {
+    fn extend<I: IntoIterator<Item = String>>(&mut self, iter: I) {
+        for s in iter {
             self.push_str(&s)
         }
     }
@@ -1528,6 +1602,7 @@ impl_eq! { Cow<'a, str>, String }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Default for String {
+    /// Creates an empty `String`.
     #[inline]
     fn default() -> String {
         String::new()
@@ -1569,6 +1644,14 @@ impl<'a> Add<&'a str> for String {
     }
 }
 
+#[stable(feature = "stringaddassign", since = "1.12.0")]
+impl<'a> AddAssign<&'a str> for String {
+    #[inline]
+    fn add_assign(&mut self, other: &str) {
+        self.push_str(other);
+    }
+}
+
 #[stable(feature = "rust1", since = "1.0.0")]
 impl ops::Index<ops::Range<usize>> for String {
     type Output = str;
@@ -1605,6 +1688,24 @@ impl ops::Index<ops::RangeFull> for String {
         unsafe { str::from_utf8_unchecked(&self.vec) }
     }
 }
+#[unstable(feature = "inclusive_range", reason = "recently added, follows RFC", issue = "28237")]
+impl ops::Index<ops::RangeInclusive<usize>> for String {
+    type Output = str;
+
+    #[inline]
+    fn index(&self, index: ops::RangeInclusive<usize>) -> &str {
+        Index::index(&**self, index)
+    }
+}
+#[unstable(feature = "inclusive_range", reason = "recently added, follows RFC", issue = "28237")]
+impl ops::Index<ops::RangeToInclusive<usize>> for String {
+    type Output = str;
+
+    #[inline]
+    fn index(&self, index: ops::RangeToInclusive<usize>) -> &str {
+        Index::index(&**self, index)
+    }
+}
 
 #[stable(feature = "derefmut_for_string", since = "1.2.0")]
 impl ops::IndexMut<ops::Range<usize>> for String {
@@ -1632,6 +1733,20 @@ impl ops::IndexMut<ops::RangeFull> for String {
     #[inline]
     fn index_mut(&mut self, _index: ops::RangeFull) -> &mut str {
         unsafe { mem::transmute(&mut *self.vec) }
+    }
+}
+#[unstable(feature = "inclusive_range", reason = "recently added, follows RFC", issue = "28237")]
+impl ops::IndexMut<ops::RangeInclusive<usize>> for String {
+    #[inline]
+    fn index_mut(&mut self, index: ops::RangeInclusive<usize>) -> &mut str {
+        IndexMut::index_mut(&mut **self, index)
+    }
+}
+#[unstable(feature = "inclusive_range", reason = "recently added, follows RFC", issue = "28237")]
+impl ops::IndexMut<ops::RangeToInclusive<usize>> for String {
+    #[inline]
+    fn index_mut(&mut self, index: ops::RangeToInclusive<usize>) -> &mut str {
+        IndexMut::index_mut(&mut **self, index)
     }
 }
 
@@ -1662,9 +1777,9 @@ impl ops::DerefMut for String {
 /// [`String`] without error, this type will never actually be returned. As
 /// such, it is only here to satisfy said signature, and is useless otherwise.
 ///
-/// [`FromStr`]: ../str/trait.FromStr.html
+/// [`FromStr`]: ../../std/str/trait.FromStr.html
 /// [`String`]: struct.String.html
-/// [`from_str()`]: ../str/trait.FromStr.html#tymethod.from_str
+/// [`from_str()`]: ../../std/str/trait.FromStr.html#tymethod.from_str
 #[stable(feature = "str_parse_error", since = "1.5.0")]
 #[derive(Copy)]
 pub enum ParseError {}
@@ -1692,6 +1807,13 @@ impl fmt::Debug for ParseError {
     }
 }
 
+#[stable(feature = "str_parse_error2", since = "1.8.0")]
+impl fmt::Display for ParseError {
+    fn fmt(&self, _: &mut fmt::Formatter) -> fmt::Result {
+        match *self {}
+    }
+}
+
 #[stable(feature = "str_parse_error", since = "1.5.0")]
 impl PartialEq for ParseError {
     fn eq(&self, _: &ParseError) -> bool {
@@ -1709,7 +1831,7 @@ impl Eq for ParseError {}
 /// [`Display`] should be implemented instead, and you get the `ToString`
 /// implementation for free.
 ///
-/// [`Display`]: ../fmt/trait.Display.html
+/// [`Display`]: ../../std/fmt/trait.Display.html
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait ToString {
     /// Converts the given value to a `String`.
@@ -1731,12 +1853,20 @@ pub trait ToString {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: fmt::Display + ?Sized> ToString for T {
     #[inline]
-    fn to_string(&self) -> String {
+    default fn to_string(&self) -> String {
         use core::fmt::Write;
         let mut buf = String::new();
         let _ = buf.write_fmt(format_args!("{}", self));
         buf.shrink_to_fit();
         buf
+    }
+}
+
+#[stable(feature = "str_to_string_specialization", since = "1.9.0")]
+impl ToString for str {
+    #[inline]
+    fn to_string(&self) -> String {
+        String::from(self)
     }
 }
 
@@ -1758,20 +1888,15 @@ impl AsRef<[u8]> for String {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> From<&'a str> for String {
-    #[cfg(not(test))]
-    #[inline]
     fn from(s: &'a str) -> String {
-        String { vec: <[_]>::to_vec(s.as_bytes()) }
+        s.to_owned()
     }
+}
 
-    // HACK(japaric): with cfg(test) the inherent `[T]::to_vec` method, which is
-    // required for this method definition, is not available. Since we don't
-    // require this method for testing purposes, I'll just stub it
-    // NB see the slice::hack module in slice.rs for more information
-    #[inline]
-    #[cfg(test)]
-    fn from(_: &str) -> String {
-        panic!("not available with cfg(test)");
+#[stable(feature = "string_from_cow_str", since = "1.14.0")]
+impl<'a> From<Cow<'a, str>> for String {
+    fn from(s: Cow<'a, str>) -> String {
+        s.into_owned()
     }
 }
 
@@ -1791,30 +1916,31 @@ impl<'a> From<String> for Cow<'a, str> {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Into<Vec<u8>> for String {
-    fn into(self) -> Vec<u8> {
-        self.into_bytes()
+#[stable(feature = "cow_str_from_iter", since = "1.12.0")]
+impl<'a> FromIterator<char> for Cow<'a, str> {
+    fn from_iter<I: IntoIterator<Item = char>>(it: I) -> Cow<'a, str> {
+        Cow::Owned(FromIterator::from_iter(it))
     }
 }
 
-#[unstable(feature = "into_cow", reason = "may be replaced by `convert::Into`",
-           issue= "27735")]
-#[allow(deprecated)]
-impl IntoCow<'static, str> for String {
-    #[inline]
-    fn into_cow(self) -> Cow<'static, str> {
-        Cow::Owned(self)
+#[stable(feature = "cow_str_from_iter", since = "1.12.0")]
+impl<'a, 'b> FromIterator<&'b str> for Cow<'a, str> {
+    fn from_iter<I: IntoIterator<Item = &'b str>>(it: I) -> Cow<'a, str> {
+        Cow::Owned(FromIterator::from_iter(it))
     }
 }
 
-#[unstable(feature = "into_cow", reason = "may be replaced by `convert::Into`",
-           issue = "27735")]
-#[allow(deprecated)]
-impl<'a> IntoCow<'a, str> for &'a str {
-    #[inline]
-    fn into_cow(self) -> Cow<'a, str> {
-        Cow::Borrowed(self)
+#[stable(feature = "cow_str_from_iter", since = "1.12.0")]
+impl<'a> FromIterator<String> for Cow<'a, str> {
+    fn from_iter<I: IntoIterator<Item = String>>(it: I) -> Cow<'a, str> {
+        Cow::Owned(FromIterator::from_iter(it))
+    }
+}
+
+#[stable(feature = "from_string_for_vec_u8", since = "1.14.0")]
+impl From<String> for Vec<u8> {
+    fn from(string : String) -> Vec<u8> {
+        string.into_bytes()
     }
 }
 
@@ -1834,6 +1960,12 @@ impl fmt::Write for String {
 }
 
 /// A draining iterator for `String`.
+///
+/// This struct is created by the [`drain()`] method on [`String`]. See its
+/// documentation for more.
+///
+/// [`drain()`]: struct.String.html#method.drain
+/// [`String`]: struct.String.html
 #[stable(feature = "drain", since = "1.6.0")]
 pub struct Drain<'a> {
     /// Will be used as &'a mut String in the destructor
@@ -1886,3 +2018,6 @@ impl<'a> DoubleEndedIterator for Drain<'a> {
         self.iter.next_back()
     }
 }
+
+#[unstable(feature = "fused", issue = "35602")]
+impl<'a> FusedIterator for Drain<'a> {}

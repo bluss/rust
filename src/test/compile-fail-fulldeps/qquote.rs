@@ -13,22 +13,24 @@
 #![feature(quote, rustc_private)]
 
 extern crate syntax;
+extern crate syntax_pos;
 
 use syntax::ast;
-use syntax::codemap::{self, DUMMY_SP};
-use syntax::parse;
 use syntax::print::pprust;
+use syntax::symbol::Symbol;
+use syntax_pos::DUMMY_SP;
 
 fn main() {
     let ps = syntax::parse::ParseSess::new();
+    let mut resolver = syntax::ext::base::DummyResolver;
     let mut cx = syntax::ext::base::ExtCtxt::new(
-        &ps, vec![],
+        &ps,
         syntax::ext::expand::ExpansionConfig::default("qquote".to_string()),
-        &mut Vec::new());
+        &mut resolver);
     cx.bt_push(syntax::codemap::ExpnInfo {
         call_site: DUMMY_SP,
         callee: syntax::codemap::NameAndSpan {
-            format: syntax::codemap::MacroBang(parse::token::intern("")),
+            format: syntax::codemap::MacroBang(Symbol::intern("")),
             allow_internal_unstable: false,
             span: None,
         }

@@ -13,6 +13,7 @@ use core::{i8, i16, isize};
 use core::usize;
 
 use test::Bencher;
+use test::black_box;
 
 #[test]
 fn test_lt() {
@@ -131,6 +132,19 @@ fn test_iterator_chain_count() {
     let zs = [];
     assert_eq!(xs.iter().chain(&ys).count(), 10);
     assert_eq!(zs.iter().chain(&ys).count(), 4);
+}
+
+#[test]
+fn test_iterator_chain_find() {
+    let xs = [0, 1, 2, 3, 4, 5];
+    let ys = [30, 40, 50, 60];
+    let mut iter = xs.iter().chain(&ys);
+    assert_eq!(iter.find(|&&i| i == 4), Some(&4));
+    assert_eq!(iter.next(), Some(&5));
+    assert_eq!(iter.find(|&&i| i == 40), Some(&40));
+    assert_eq!(iter.next(), Some(&50));
+    assert_eq!(iter.find(|&&i| i == 100), None);
+    assert_eq!(iter.next(), None);
 }
 
 #[test]
@@ -260,6 +274,74 @@ fn test_iterator_peekable_last() {
     let mut it = ys.iter().peekable();
     assert_eq!(it.peek(), Some(&&0));
     assert_eq!(it.last(), Some(&0));
+
+    let mut it = ys.iter().peekable();
+    assert_eq!(it.next(), Some(&0));
+    assert_eq!(it.peek(), None);
+    assert_eq!(it.last(), None);
+}
+
+/// This is an iterator that follows the Iterator contract,
+/// but it is not fused. After having returned None once, it will start
+/// producing elements if .next() is called again.
+pub struct CycleIter<'a, T: 'a> {
+    index: usize,
+    data: &'a [T],
+}
+
+pub fn cycle<T>(data: &[T]) -> CycleIter<T> {
+    CycleIter {
+        index: 0,
+        data: data,
+    }
+}
+
+impl<'a, T> Iterator for CycleIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let elt = self.data.get(self.index);
+        self.index += 1;
+        self.index %= 1 + self.data.len();
+        elt
+    }
+}
+
+#[test]
+fn test_iterator_peekable_remember_peek_none_1() {
+    // Check that the loop using .peek() terminates
+    let data = [1, 2, 3];
+    let mut iter = cycle(&data).peekable();
+
+    let mut n = 0;
+    while let Some(_) = iter.next() {
+        let is_the_last = iter.peek().is_none();
+        assert_eq!(is_the_last, n == data.len() - 1);
+        n += 1;
+        if n > data.len() { break; }
+    }
+    assert_eq!(n, data.len());
+}
+
+#[test]
+fn test_iterator_peekable_remember_peek_none_2() {
+    let data = [0];
+    let mut iter = cycle(&data).peekable();
+    iter.next();
+    assert_eq!(iter.peek(), None);
+    assert_eq!(iter.last(), None);
+}
+
+#[test]
+fn test_iterator_peekable_remember_peek_none_3() {
+    let data = [0];
+    let mut iter = cycle(&data).peekable();
+    iter.peek();
+    assert_eq!(iter.nth(0), Some(&0));
+
+    let mut iter = cycle(&data).peekable();
+    iter.next();
+    assert_eq!(iter.peek(), None);
+    assert_eq!(iter.nth(0), None);
 }
 
 #[test]
@@ -301,6 +383,44 @@ fn test_iterator_skip() {
     }
     assert_eq!(i, ys.len());
     assert_eq!(it.len(), 0);
+}
+
+#[test]
+fn test_iterator_skip_doubleended() {
+    let xs = [0, 1, 2, 3, 5, 13, 15, 16, 17, 19, 20, 30];
+    let mut it = xs.iter().rev().skip(5);
+    assert_eq!(it.next(), Some(&15));
+    assert_eq!(it.by_ref().rev().next(), Some(&0));
+    assert_eq!(it.next(), Some(&13));
+    assert_eq!(it.by_ref().rev().next(), Some(&1));
+    assert_eq!(it.next(), Some(&5));
+    assert_eq!(it.by_ref().rev().next(), Some(&2));
+    assert_eq!(it.next(), Some(&3));
+    assert_eq!(it.next(), None);
+    let mut it = xs.iter().rev().skip(5).rev();
+    assert_eq!(it.next(), Some(&0));
+    assert_eq!(it.rev().next(), Some(&15));
+    let mut it_base = xs.iter();
+    {
+        let mut it = it_base.by_ref().skip(5).rev();
+        assert_eq!(it.next(), Some(&30));
+        assert_eq!(it.next(), Some(&20));
+        assert_eq!(it.next(), Some(&19));
+        assert_eq!(it.next(), Some(&17));
+        assert_eq!(it.next(), Some(&16));
+        assert_eq!(it.next(), Some(&15));
+        assert_eq!(it.next(), Some(&13));
+        assert_eq!(it.next(), None);
+    }
+    // make sure the skipped parts have not been consumed
+    assert_eq!(it_base.next(), Some(&0));
+    assert_eq!(it_base.next(), Some(&1));
+    assert_eq!(it_base.next(), Some(&2));
+    assert_eq!(it_base.next(), Some(&3));
+    assert_eq!(it_base.next(), Some(&5));
+    assert_eq!(it_base.next(), None);
+    let it = xs.iter().skip(5).rev();
+    assert_eq!(it.last(), Some(&13));
 }
 
 #[test]
@@ -607,15 +727,27 @@ fn test_count() {
 }
 
 #[test]
+fn test_max_by_key() {
+    let xs: &[isize] = &[-3, 0, 1, 5, -10];
+    assert_eq!(*xs.iter().max_by_key(|x| x.abs()).unwrap(), -10);
+}
+
+#[test]
 fn test_max_by() {
     let xs: &[isize] = &[-3, 0, 1, 5, -10];
-    assert_eq!(*xs.iter().max_by(|x| x.abs()).unwrap(), -10);
+    assert_eq!(*xs.iter().max_by(|x, y| x.abs().cmp(&y.abs())).unwrap(), -10);
+}
+
+#[test]
+fn test_min_by_key() {
+    let xs: &[isize] = &[-3, 0, 1, 5, -10];
+    assert_eq!(*xs.iter().min_by_key(|x| x.abs()).unwrap(), 0);
 }
 
 #[test]
 fn test_min_by() {
     let xs: &[isize] = &[-3, 0, 1, 5, -10];
-    assert_eq!(*xs.iter().min_by(|x| x.abs()).unwrap(), 0);
+    assert_eq!(*xs.iter().min_by(|x, y| x.abs().cmp(&y.abs())).unwrap(), 0);
 }
 
 #[test]
@@ -639,7 +771,7 @@ fn test_rev() {
 
 #[test]
 fn test_cloned() {
-    let xs = [2u8, 4, 6, 8];
+    let xs = [2, 4, 6, 8];
 
     let mut it = xs.iter().cloned();
     assert_eq!(it.len(), 4);
@@ -823,8 +955,8 @@ fn test_range() {
     assert_eq!((-10..-1).size_hint(), (9, Some(9)));
     assert_eq!((-1..-10).size_hint(), (0, Some(0)));
 
-    assert_eq!((-70..58i8).size_hint(), (128, Some(128)));
-    assert_eq!((-128..127i8).size_hint(), (255, Some(255)));
+    assert_eq!((-70..58).size_hint(), (128, Some(128)));
+    assert_eq!((-128..127).size_hint(), (255, Some(255)));
     assert_eq!((-2..isize::MAX).size_hint(),
                (isize::MAX as usize + 2, Some(isize::MAX as usize + 2)));
 }
@@ -849,15 +981,6 @@ fn test_range_step() {
     assert_eq!((i8::MAX..i8::MIN).step_by(i8::MIN).size_hint(), (2, Some(2)));
     assert_eq!((i16::MIN..i16::MAX).step_by(i16::MAX).size_hint(), (3, Some(3)));
     assert_eq!((isize::MIN..isize::MAX).step_by(1).size_hint(), (usize::MAX, Some(usize::MAX)));
-}
-
-#[test]
-fn test_peekable_is_empty() {
-    let a = [1];
-    let mut it = a.iter().peekable();
-    assert!( !it.is_empty() );
-    it.next();
-    assert!( it.is_empty() );
 }
 
 #[test]
@@ -930,6 +1053,18 @@ fn test_empty() {
     assert_eq!(it.next(), None);
 }
 
+#[test]
+fn test_chain_fold() {
+    let xs = [1, 2, 3];
+    let ys = [1, 2, 0];
+
+    let mut iter = xs.iter().chain(&ys);
+    iter.next();
+    let mut result = Vec::new();
+    iter.fold((), |(), &elt| result.push(elt));
+    assert_eq!(&[2, 3, 1, 2, 0], &result[..]);
+}
+
 #[bench]
 fn bench_rposition(b: &mut Bencher) {
     let it: Vec<usize> = (0..300).collect();
@@ -961,21 +1096,21 @@ fn bench_multiple_take(b: &mut Bencher) {
 fn scatter(x: i32) -> i32 { (x * 31) % 127 }
 
 #[bench]
-fn bench_max_by(b: &mut Bencher) {
+fn bench_max_by_key(b: &mut Bencher) {
     b.iter(|| {
         let it = 0..100;
-        it.max_by(|&x| scatter(x))
+        it.max_by_key(|&x| scatter(x))
     })
 }
 
 // http://www.reddit.com/r/rust/comments/31syce/using_iterators_to_find_the_index_of_the_min_or/
 #[bench]
-fn bench_max_by2(b: &mut Bencher) {
+fn bench_max_by_key2(b: &mut Bencher) {
     fn max_index_iter(array: &[i32]) -> usize {
-        array.iter().enumerate().max_by(|&(_, item)| item).unwrap().0
+        array.iter().enumerate().max_by_key(|&(_, item)| item).unwrap().0
     }
 
-    let mut data = vec![0i32; 1638];
+    let mut data = vec![0; 1638];
     data[514] = 9999;
 
     b.iter(|| max_index_iter(&data));
@@ -987,4 +1122,34 @@ fn bench_max(b: &mut Bencher) {
         let it = 0..100;
         it.map(scatter).max()
     })
+}
+
+pub fn copy_zip(xs: &[u8], ys: &mut [u8]) {
+    for (a, b) in ys.iter_mut().zip(xs) {
+        *a = *b;
+    }
+}
+
+pub fn add_zip(xs: &[f32], ys: &mut [f32]) {
+    for (a, b) in ys.iter_mut().zip(xs) {
+        *a += *b;
+    }
+}
+
+#[bench]
+fn bench_zip_copy(b: &mut Bencher) {
+    let source = vec![0u8; 16 * 1024];
+    let mut dst = black_box(vec![0u8; 16 * 1024]);
+    b.iter(|| {
+        copy_zip(&source, &mut dst)
+    })
+}
+
+#[bench]
+fn bench_zip_add(b: &mut Bencher) {
+    let source = vec![1.; 16 * 1024];
+    let mut dst = vec![0.; 16 * 1024];
+    b.iter(|| {
+        add_zip(&source, &mut dst)
+    });
 }

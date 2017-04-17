@@ -14,6 +14,11 @@ Now that you know more Rust, we can talk in detail about how this works.
 Ranges (the `0..10`) are 'iterators'. An iterator is something that we can
 call the `.next()` method on repeatedly, and it gives us a sequence of things.
 
+(By the way, a range with two dots like `0..10` is inclusive on the left (so it
+starts at 0) and exclusive on the right (so it ends at 9). A mathematician
+would write "[0, 10)". To get a range that goes all the way up to 10 you can
+write `0...10`.)
+
 Like this:
 
 ```rust
@@ -311,10 +316,12 @@ for i in (1..100).filter(|&x| x % 2 == 0) {
 ```
 
 This will print all of the even numbers between one and a hundred.
-(Note that because `filter` doesn't consume the elements that are
-being iterated over, it is passed a reference to each element, and
-thus the filter predicate uses the `&x` pattern to extract the integer
-itself.)
+(Note that, unlike `map`, the closure passed to `filter` is passed a reference
+to the element instead of the element itself. The filter predicate here uses
+the `&x` pattern to extract the integer. The filter closure is passed a
+reference because it returns `true` or `false` instead of the element,
+so the `filter` implementation must retain ownership to put the elements
+into the newly constructed iterator.)
 
 You can chain all three things together: start with an iterator, adapt it
 a few times, and then consume the result. Check it out:

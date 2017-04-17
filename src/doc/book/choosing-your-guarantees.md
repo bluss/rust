@@ -25,7 +25,7 @@ the following:
 ```rust
 let x = Box::new(1);
 let y = x;
-// x no longer accessible here
+// `x` is no longer accessible here.
 ```
 
 Here, the box was _moved_ into `y`. As `x` no longer owns it, the compiler will no longer allow the
@@ -204,7 +204,7 @@ borrow checker. Generally we know that such mutations won't happen in a nested f
 to check.
 
 For large, complicated programs, it becomes useful to put some things in `RefCell`s to make things
-simpler. For example, a lot of the maps in [the `ctxt` struct][ctxt] in the Rust compiler internals
+simpler. For example, a lot of the maps in the `ctxt` struct in the Rust compiler internals
 are inside this wrapper. These are only modified once (during creation, which is not right after
 initialization) or a couple of times in well-separated places. However, since this struct is
 pervasively used everywhere, juggling mutable and immutable pointers would be hard (perhaps
@@ -232,10 +232,9 @@ indicator (one word in size) along with the data.
 
 At runtime each borrow causes a modification/check of the refcount.
 
-[cell-mod]: ../std/cell/
+[cell-mod]: ../std/cell/index.html
 [cell]: ../std/cell/struct.Cell.html
 [refcell]: ../std/cell/struct.RefCell.html
-[ctxt]: ../rustc/middle/ty/struct.ctxt.html
 
 # Synchronous types
 
@@ -292,9 +291,9 @@ the inner data (mutably), and the lock will be released when the guard goes out 
 ```rust,ignore
 {
     let guard = mutex.lock();
-    // guard dereferences mutably to the inner type
+    // `guard` dereferences mutably to the inner type.
     *guard += 1;
-} // lock released when destructor runs
+} // Lock is released when destructor runs.
 ```
 
 

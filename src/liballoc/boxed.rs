@@ -61,12 +61,12 @@ use core::borrow;
 use core::cmp::Ordering;
 use core::fmt;
 use core::hash::{self, Hash};
+use core::iter::FusedIterator;
 use core::marker::{self, Unsize};
 use core::mem;
 use core::ops::{CoerceUnsized, Deref, DerefMut};
-use core::ops::{Placer, Boxed, Place, InPlace, BoxPlace};
+use core::ops::{BoxPlace, Boxed, InPlace, Place, Placer};
 use core::ptr::{self, Unique};
-use core::raw::TraitObject;
 use core::convert::From;
 
 /// A value that represents the heap. This is the default place that the `box`
@@ -244,11 +244,21 @@ impl<T: ?Sized> Box<T> {
     /// the destructor of `T` and free the allocated memory. Since the
     /// way `Box` allocates and releases memory is unspecified, the
     /// only valid pointer to pass to this function is the one taken
-    /// from another `Box` via the `Box::into_raw` function.
+    /// from another `Box` via the [`Box::into_raw`] function.
     ///
     /// This function is unsafe because improper use may lead to
     /// memory problems. For example, a double-free may occur if the
     /// function is called twice on the same raw pointer.
+    ///
+    /// [`Box::into_raw`]: struct.Box.html#method.into_raw
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let x = Box::new(5);
+    /// let ptr = Box::into_raw(x);
+    /// let x = unsafe { Box::from_raw(ptr) };
+    /// ```
     #[stable(feature = "box_raw", since = "1.4.0")]
     #[inline]
     pub unsafe fn from_raw(raw: *mut T) -> Self {
@@ -261,14 +271,19 @@ impl<T: ?Sized> Box<T> {
     /// memory previously managed by the `Box`. In particular, the
     /// caller should properly destroy `T` and release the memory. The
     /// proper way to do so is to convert the raw pointer back into a
-    /// `Box` with the `Box::from_raw` function.
+    /// `Box` with the [`Box::from_raw`] function.
+    ///
+    /// Note: this is an associated function, which means that you have
+    /// to call it as `Box::into_raw(b)` instead of `b.into_raw()`. This
+    /// is so that there is no conflict with a method on the inner type.
+    ///
+    /// [`Box::from_raw`]: struct.Box.html#method.from_raw
     ///
     /// # Examples
     ///
     /// ```
-    /// let seventeen = Box::new(17);
-    /// let raw = Box::into_raw(seventeen);
-    /// let boxed_again = unsafe { Box::from_raw(raw) };
+    /// let x = Box::new(5);
+    /// let ptr = Box::into_raw(x);
     /// ```
     #[stable(feature = "box_raw", since = "1.4.0")]
     #[inline]
@@ -279,6 +294,7 @@ impl<T: ?Sized> Box<T> {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Default> Default for Box<T> {
+    /// Creates a `Box<T>`, with the `Default` value for T.
     fn default() -> Box<T> {
         box Default::default()
     }
@@ -399,15 +415,29 @@ impl Box<Any> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     /// Attempt to downcast the box to a concrete type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::any::Any;
+    ///
+    /// fn print_if_string(value: Box<Any>) {
+    ///     if let Ok(string) = value.downcast::<String>() {
+    ///         println!("String ({}): {}", string.len(), string);
+    ///     }
+    /// }
+    ///
+    /// fn main() {
+    ///     let my_string = "Hello World".to_string();
+    ///     print_if_string(Box::new(my_string));
+    ///     print_if_string(Box::new(0i8));
+    /// }
+    /// ```
     pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
         if self.is::<T>() {
             unsafe {
-                // Get the raw representation of the trait object
-                let raw = Box::into_raw(self);
-                let to: TraitObject = mem::transmute::<*mut Any, TraitObject>(raw);
-
-                // Extract the data pointer
-                Ok(Box::from_raw(to.data as *mut T))
+                let raw: *mut Any = Box::into_raw(self);
+                Ok(Box::from_raw(raw as *mut T))
             }
         } else {
             Err(self)
@@ -419,6 +449,24 @@ impl Box<Any + Send> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     /// Attempt to downcast the box to a concrete type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::any::Any;
+    ///
+    /// fn print_if_string(value: Box<Any + Send>) {
+    ///     if let Ok(string) = value.downcast::<String>() {
+    ///         println!("String ({}): {}", string.len(), string);
+    ///     }
+    /// }
+    ///
+    /// fn main() {
+    ///     let my_string = "Hello World".to_string();
+    ///     print_if_string(Box::new(my_string));
+    ///     print_if_string(Box::new(0i8));
+    /// }
+    /// ```
     pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any + Send>> {
         <Box<Any>>::downcast(self).map_err(|s| unsafe {
             // reapply the Send marker
@@ -442,7 +490,7 @@ impl<T: fmt::Debug + ?Sized> fmt::Debug for Box<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T> fmt::Pointer for Box<T> {
+impl<T: ?Sized> fmt::Pointer for Box<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // It's not possible to extract the inner Uniq directly from the Box,
         // instead we cast it to a *const which aliases the Unique
@@ -486,6 +534,9 @@ impl<I: DoubleEndedIterator + ?Sized> DoubleEndedIterator for Box<I> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<I: ExactSizeIterator + ?Sized> ExactSizeIterator for Box<I> {}
 
+#[unstable(feature = "fused", issue = "35602")]
+impl<I: FusedIterator + ?Sized> FusedIterator for Box<I> {}
+
 
 /// `FnBox` is a version of the `FnOnce` intended for use with boxed
 /// closure objects. The idea is that where one would normally store a
@@ -525,15 +576,18 @@ impl<I: ExactSizeIterator + ?Sized> ExactSizeIterator for Box<I> {}
 /// }
 /// ```
 #[rustc_paren_sugar]
-#[unstable(feature = "fnbox", reason = "Newly introduced", issue = "0")]
+#[unstable(feature = "fnbox",
+           reason = "will be deprecated if and when Box<FnOnce> becomes usable", issue = "28796")]
 pub trait FnBox<A> {
     type Output;
 
     fn call_box(self: Box<Self>, args: A) -> Self::Output;
 }
 
-#[unstable(feature = "fnbox", reason = "Newly introduced", issue = "0")]
-impl<A, F> FnBox<A> for F where F: FnOnce<A>
+#[unstable(feature = "fnbox",
+           reason = "will be deprecated if and when Box<FnOnce> becomes usable", issue = "28796")]
+impl<A, F> FnBox<A> for F
+    where F: FnOnce<A>
 {
     type Output = F::Output;
 
@@ -542,7 +596,8 @@ impl<A, F> FnBox<A> for F where F: FnOnce<A>
     }
 }
 
-#[unstable(feature = "fnbox", reason = "Newly introduced", issue = "0")]
+#[unstable(feature = "fnbox",
+           reason = "will be deprecated if and when Box<FnOnce> becomes usable", issue = "28796")]
 impl<'a, A, R> FnOnce<A> for Box<FnBox<A, Output = R> + 'a> {
     type Output = R;
 
@@ -551,7 +606,8 @@ impl<'a, A, R> FnOnce<A> for Box<FnBox<A, Output = R> + 'a> {
     }
 }
 
-#[unstable(feature = "fnbox", reason = "Newly introduced", issue = "0")]
+#[unstable(feature = "fnbox",
+           reason = "will be deprecated if and when Box<FnOnce> becomes usable", issue = "28796")]
 impl<'a, A, R> FnOnce<A> for Box<FnBox<A, Output = R> + Send + 'a> {
     type Output = R;
 

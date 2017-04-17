@@ -8,13 +8,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::ascii::AsciiExt;
+use std::borrow::Cow;
 use std::iter::{FromIterator, repeat};
 use std::mem::size_of;
+use std::vec::{Drain, IntoIter};
 
 use test::Bencher;
 
 struct DropCounter<'a> {
-    count: &'a mut u32
+    count: &'a mut u32,
 }
 
 impl<'a> Drop for DropCounter<'a> {
@@ -32,17 +35,17 @@ fn test_small_vec_struct() {
 fn test_double_drop() {
     struct TwoVec<T> {
         x: Vec<T>,
-        y: Vec<T>
+        y: Vec<T>,
     }
 
     let (mut count_x, mut count_y) = (0, 0);
     {
         let mut tv = TwoVec {
             x: Vec::new(),
-            y: Vec::new()
+            y: Vec::new(),
         };
-        tv.x.push(DropCounter {count: &mut count_x});
-        tv.y.push(DropCounter {count: &mut count_y});
+        tv.x.push(DropCounter { count: &mut count_x });
+        tv.y.push(DropCounter { count: &mut count_y });
 
         // If Vec had a drop flag, here is where it would be zeroed.
         // Instead, it should rely on its internal state to prevent
@@ -84,14 +87,21 @@ fn test_extend() {
     let mut w = Vec::new();
 
     v.extend(0..3);
-    for i in 0..3 { w.push(i) }
+    for i in 0..3 {
+        w.push(i)
+    }
 
     assert_eq!(v, w);
 
     v.extend(3..10);
-    for i in 3..10 { w.push(i) }
+    for i in 3..10 {
+        w.push(i)
+    }
 
     assert_eq!(v, w);
+
+    v.extend(w.clone()); // specializes to `append`
+    assert!(v.iter().eq(w.iter().chain(w.iter())));
 }
 
 #[test]
@@ -113,7 +123,7 @@ fn test_extend_ref() {
 fn test_slice_from_mut() {
     let mut values = vec![1, 2, 3, 4, 5];
     {
-        let slice = &mut values[2 ..];
+        let slice = &mut values[2..];
         assert!(slice == [3, 4, 5]);
         for p in slice {
             *p += 2;
@@ -127,7 +137,7 @@ fn test_slice_from_mut() {
 fn test_slice_to_mut() {
     let mut values = vec![1, 2, 3, 4, 5];
     {
-        let slice = &mut values[.. 2];
+        let slice = &mut values[..2];
         assert!(slice == [1, 2]);
         for p in slice {
             *p += 1;
@@ -165,7 +175,7 @@ fn test_split_at_mut() {
 #[test]
 fn test_clone() {
     let v: Vec<i32> = vec![];
-    let w = vec!(1, 2, 3);
+    let w = vec![1, 2, 3];
 
     assert_eq!(v, v.clone());
 
@@ -177,9 +187,9 @@ fn test_clone() {
 
 #[test]
 fn test_clone_from() {
-    let mut v = vec!();
-    let three: Vec<Box<_>> = vec!(box 1, box 2, box 3);
-    let two: Vec<Box<_>> = vec!(box 4, box 5);
+    let mut v = vec![];
+    let three: Vec<Box<_>> = vec![box 1, box 2, box 3];
+    let two: Vec<Box<_>> = vec![box 4, box 5];
     // zero, long
     v.clone_from(&three);
     assert_eq!(v, three);
@@ -202,6 +212,60 @@ fn test_retain() {
     let mut vec = vec![1, 2, 3, 4];
     vec.retain(|&x| x % 2 == 0);
     assert_eq!(vec, [2, 4]);
+}
+
+#[test]
+fn test_dedup() {
+    fn case(a: Vec<i32>, b: Vec<i32>) {
+        let mut v = a;
+        v.dedup();
+        assert_eq!(v, b);
+    }
+    case(vec![], vec![]);
+    case(vec![1], vec![1]);
+    case(vec![1, 1], vec![1]);
+    case(vec![1, 2, 3], vec![1, 2, 3]);
+    case(vec![1, 1, 2, 3], vec![1, 2, 3]);
+    case(vec![1, 2, 2, 3], vec![1, 2, 3]);
+    case(vec![1, 2, 3, 3], vec![1, 2, 3]);
+    case(vec![1, 1, 2, 2, 2, 3, 3], vec![1, 2, 3]);
+}
+
+#[test]
+fn test_dedup_by_key() {
+    fn case(a: Vec<i32>, b: Vec<i32>) {
+        let mut v = a;
+        v.dedup_by_key(|i| *i / 10);
+        assert_eq!(v, b);
+    }
+    case(vec![], vec![]);
+    case(vec![10], vec![10]);
+    case(vec![10, 11], vec![10]);
+    case(vec![10, 20, 30], vec![10, 20, 30]);
+    case(vec![10, 11, 20, 30], vec![10, 20, 30]);
+    case(vec![10, 20, 21, 30], vec![10, 20, 30]);
+    case(vec![10, 20, 30, 31], vec![10, 20, 30]);
+    case(vec![10, 11, 20, 21, 22, 30, 31], vec![10, 20, 30]);
+}
+
+#[test]
+fn test_dedup_by() {
+    let mut vec = vec!["foo", "bar", "Bar", "baz", "bar"];
+    vec.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+
+    assert_eq!(vec, ["foo", "bar", "baz", "bar"]);
+}
+
+#[test]
+fn test_dedup_unique() {
+    let mut v0: Vec<Box<_>> = vec![box 1, box 1, box 2, box 3];
+    v0.dedup();
+    let mut v1: Vec<Box<_>> = vec![box 1, box 2, box 2, box 3];
+    v1.dedup();
+    let mut v2: Vec<Box<_>> = vec![box 1, box 2, box 3, box 3];
+    v2.dedup();
+    // If the boxed pointers were leaked or otherwise misused, valgrind
+    // and/or rt should raise errors.
 }
 
 #[test]
@@ -231,16 +295,22 @@ fn zero_sized_values() {
     assert_eq!(v.iter_mut().count(), 4);
 
     for &mut () in &mut v {}
-    unsafe { v.set_len(0); }
+    unsafe {
+        v.set_len(0);
+    }
     assert_eq!(v.iter_mut().count(), 0);
 }
 
 #[test]
 fn test_partition() {
-    assert_eq!(vec![].into_iter().partition(|x: &i32| *x < 3), (vec![], vec![]));
-    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 4), (vec![1, 2, 3], vec![]));
-    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 2), (vec![1], vec![2, 3]));
-    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 0), (vec![], vec![1, 2, 3]));
+    assert_eq!(vec![].into_iter().partition(|x: &i32| *x < 3),
+               (vec![], vec![]));
+    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 4),
+               (vec![1, 2, 3], vec![]));
+    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 2),
+               (vec![1], vec![2, 3]));
+    assert_eq!(vec![1, 2, 3].into_iter().partition(|x| *x < 0),
+               (vec![], vec![1, 2, 3]));
 }
 
 #[test]
@@ -256,20 +326,22 @@ fn test_zip_unzip() {
 
 #[test]
 fn test_vec_truncate_drop() {
-    static mut drops: u32 = 0;
+    static mut DROPS: u32 = 0;
     struct Elem(i32);
     impl Drop for Elem {
         fn drop(&mut self) {
-            unsafe { drops += 1; }
+            unsafe {
+                DROPS += 1;
+            }
         }
     }
 
     let mut v = vec![Elem(1), Elem(2), Elem(3), Elem(4), Elem(5)];
-    assert_eq!(unsafe { drops }, 0);
+    assert_eq!(unsafe { DROPS }, 0);
     v.truncate(3);
-    assert_eq!(unsafe { drops }, 2);
+    assert_eq!(unsafe { DROPS }, 2);
     v.truncate(0);
-    assert_eq!(unsafe { drops }, 5);
+    assert_eq!(unsafe { DROPS }, 5);
 }
 
 #[test]
@@ -340,7 +412,7 @@ fn test_slice_out_of_bounds_5() {
 #[test]
 #[should_panic]
 fn test_swap_remove_empty() {
-    let mut vec= Vec::<i32>::new();
+    let mut vec = Vec::<i32>::new();
     vec.swap_remove(0);
 }
 
@@ -382,7 +454,7 @@ fn test_drain_items() {
         vec2.push(i);
     }
     assert_eq!(vec, []);
-    assert_eq!(vec2, [ 1, 2, 3 ]);
+    assert_eq!(vec2, [1, 2, 3]);
 }
 
 #[test]
@@ -462,8 +534,85 @@ fn test_split_off() {
 }
 
 #[test]
+fn test_into_iter_as_slice() {
+    let vec = vec!['a', 'b', 'c'];
+    let mut into_iter = vec.into_iter();
+    assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
+    let _ = into_iter.next().unwrap();
+    assert_eq!(into_iter.as_slice(), &['b', 'c']);
+    let _ = into_iter.next().unwrap();
+    let _ = into_iter.next().unwrap();
+    assert_eq!(into_iter.as_slice(), &[]);
+}
+
+#[test]
+fn test_into_iter_as_mut_slice() {
+    let vec = vec!['a', 'b', 'c'];
+    let mut into_iter = vec.into_iter();
+    assert_eq!(into_iter.as_slice(), &['a', 'b', 'c']);
+    into_iter.as_mut_slice()[0] = 'x';
+    into_iter.as_mut_slice()[1] = 'y';
+    assert_eq!(into_iter.next().unwrap(), 'x');
+    assert_eq!(into_iter.as_slice(), &['y', 'c']);
+}
+
+#[test]
+fn test_into_iter_debug() {
+    let vec = vec!['a', 'b', 'c'];
+    let into_iter = vec.into_iter();
+    let debug = format!("{:?}", into_iter);
+    assert_eq!(debug, "IntoIter(['a', 'b', 'c'])");
+}
+
+#[test]
 fn test_into_iter_count() {
     assert_eq!(vec![1, 2, 3].into_iter().count(), 3);
+}
+
+#[test]
+fn test_into_iter_clone() {
+    fn iter_equal<I: Iterator<Item = i32>>(it: I, slice: &[i32]) {
+        let v: Vec<i32> = it.collect();
+        assert_eq!(&v[..], slice);
+    }
+    let mut it = vec![1, 2, 3].into_iter();
+    iter_equal(it.clone(), &[1, 2, 3]);
+    assert_eq!(it.next(), Some(1));
+    let mut it = it.rev();
+    iter_equal(it.clone(), &[3, 2]);
+    assert_eq!(it.next(), Some(3));
+    iter_equal(it.clone(), &[2]);
+    assert_eq!(it.next(), Some(2));
+    iter_equal(it.clone(), &[]);
+    assert_eq!(it.next(), None);
+}
+
+#[test]
+fn test_cow_from() {
+    let borrowed: &[_] = &["borrowed", "(slice)"];
+    let owned = vec!["owned", "(vec)"];
+    match (Cow::from(owned.clone()), Cow::from(borrowed)) {
+        (Cow::Owned(o), Cow::Borrowed(b)) => assert!(o == owned && b == borrowed),
+        _ => panic!("invalid `Cow::from`"),
+    }
+}
+
+#[test]
+fn test_from_cow() {
+    let borrowed: &[_] = &["borrowed", "(slice)"];
+    let owned = vec!["owned", "(vec)"];
+    assert_eq!(Vec::from(Cow::Borrowed(borrowed)), vec!["borrowed", "(slice)"]);
+    assert_eq!(Vec::from(Cow::Owned(owned)), vec!["owned", "(vec)"]);
+}
+
+#[allow(dead_code)]
+fn assert_covariance() {
+    fn drain<'new>(d: Drain<'static, &'static str>) -> Drain<'new, &'new str> {
+        d
+    }
+    fn into_iter<'new>(i: IntoIter<&'static str>) -> IntoIter<&'new str> {
+        i
+    }
 }
 
 #[bench]
@@ -686,7 +835,7 @@ fn do_bench_push_all(b: &mut Bencher, dst_len: usize, src_len: usize) {
 
     b.iter(|| {
         let mut dst = dst.clone();
-        dst.push_all(&src);
+        dst.extend_from_slice(&src);
         assert_eq!(dst.len(), dst_len + src_len);
         assert!(dst.iter().enumerate().all(|(i, x)| i == *x));
     });

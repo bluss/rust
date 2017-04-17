@@ -8,7 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(core)]
+#![feature(core, fnbox)]
+
 use std::boxed::FnBox;
 
 struct FuncContainer {
@@ -81,11 +82,11 @@ impl FuncContainerOuter {
     fn run(&self) {
         unsafe {
             (*self.container).f1(1); //~ ERROR no method named `f1` found
-            //~^ NOTE use `(*self.container.f1)(...)`
+            //~^ NOTE use `((*self.container).f1)(...)`
             (*self.container).f2(1); //~ ERROR no method named `f2` found
-            //~^ NOTE use `(*self.container.f2)(...)`
+            //~^ NOTE use `((*self.container).f2)(...)`
             (*self.container).f3(1); //~ ERROR no method named `f3` found
-            //~^ NOTE use `(*self.container.f3)(...)`
+            //~^ NOTE use `((*self.container).f3)(...)`
         }
     }
 }

@@ -19,9 +19,11 @@ use syntax::visit::Visitor;
 use syntax::visit;
 
 pub fn check_crate(sess: &Session, krate: &ast::Crate) {
-    if sess.target.target.options.allow_asm { return; }
+    if sess.target.target.options.allow_asm {
+        return;
+    }
 
-    visit::walk_crate(&mut CheckNoAsm { sess: sess, }, krate);
+    visit::walk_crate(&mut CheckNoAsm { sess: sess }, krate);
 }
 
 #[derive(Copy, Clone)]
@@ -29,12 +31,16 @@ struct CheckNoAsm<'a> {
     sess: &'a Session,
 }
 
-impl<'a, 'v> Visitor<'v> for CheckNoAsm<'a> {
+impl<'a> Visitor for CheckNoAsm<'a> {
     fn visit_expr(&mut self, e: &ast::Expr) {
         match e.node {
-            ast::ExprInlineAsm(_) => span_err!(self.sess, e.span, E0472,
-                                               "asm! is unsupported on this target"),
-            _ => {},
+            ast::ExprKind::InlineAsm(_) => {
+                span_err!(self.sess,
+                          e.span,
+                          E0472,
+                          "asm! is unsupported on this target")
+            }
+            _ => {}
         }
         visit::walk_expr(self, e)
     }

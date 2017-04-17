@@ -21,37 +21,59 @@ endif
 
 ifdef CFG_DISABLE_OPTIMIZE_LLVM
 LLVM_BUILD_CONFIG_MODE := Debug
+else ifdef CFG_ENABLE_LLVM_RELEASE_DEBUGINFO
+LLVM_BUILD_CONFIG_MODE := RelWithDebInfo
 else
 LLVM_BUILD_CONFIG_MODE := Release
 endif
 
 define DEF_LLVM_RULES
 
+ifeq ($(1),$$(CFG_BUILD))
+LLVM_DEPS_TARGET_$(1) := $$(LLVM_DEPS)
+else
+LLVM_DEPS_TARGET_$(1) := $$(LLVM_DEPS) $$(LLVM_CONFIG_$$(CFG_BUILD))
+endif
+
 # If CFG_LLVM_ROOT is defined then we don't build LLVM ourselves
 ifeq ($(CFG_LLVM_ROOT),)
 
-LLVM_STAMP_$(1) = $$(CFG_LLVM_BUILD_DIR_$(1))/llvm-auto-clean-stamp
+LLVM_STAMP_$(1) = $(S)src/rustllvm/llvm-auto-clean-trigger
+LLVM_DONE_$(1) = $$(CFG_LLVM_BUILD_DIR_$(1))/llvm-finished-building
 
-ifeq ($$(findstring msvc,$(1)),msvc)
+$$(LLVM_CONFIG_$(1)): $$(LLVM_DONE_$(1))
 
-$$(LLVM_CONFIG_$(1)): $$(LLVM_DEPS) $$(LLVM_STAMP_$(1))
-	@$$(call E, cmake: llvm)
-	$$(Q)$$(CFG_CMAKE) --build $$(CFG_LLVM_BUILD_DIR_$(1)) \
-		--config $$(LLVM_BUILD_CONFIG_MODE)
-	$$(Q)touch $$(LLVM_CONFIG_$(1))
-
-clean-llvm$(1):
-
+ifneq ($$(CFG_NINJA),)
+BUILD_LLVM_$(1) := $$(CFG_NINJA) -C $$(CFG_LLVM_BUILD_DIR_$(1))
+else ifeq ($$(findstring msvc,$(1)),msvc)
+BUILD_LLVM_$(1) := $$(CFG_CMAKE) --build $$(CFG_LLVM_BUILD_DIR_$(1)) \
+			--config $$(LLVM_BUILD_CONFIG_MODE)
 else
+BUILD_LLVM_$(1) := $$(MAKE) -C $$(CFG_LLVM_BUILD_DIR_$(1))
+endif
 
-$$(LLVM_CONFIG_$(1)): $$(LLVM_DEPS) $$(LLVM_STAMP_$(1))
-	@$$(call E, make: llvm)
-	$$(Q)$$(MAKE) -C $$(CFG_LLVM_BUILD_DIR_$(1)) $$(CFG_LLVM_BUILD_ENV_$(1)) ONLY_TOOLS="$$(LLVM_TOOLS)"
-	$$(Q)touch $$(LLVM_CONFIG_$(1))
+$$(LLVM_DONE_$(1)): $$(LLVM_DEPS_TARGET_$(1)) $$(LLVM_STAMP_$(1))
+	@$$(call E, cmake: llvm)
+	$$(Q)if ! cmp $$(LLVM_STAMP_$(1)) $$(LLVM_DONE_$(1)); then \
+		$$(MAKE) clean-llvm$(1); \
+		$$(BUILD_LLVM_$(1)); \
+	fi
+	$$(Q)cp $$(LLVM_STAMP_$(1)) $$@
 
+ifneq ($$(CFG_NINJA),)
 clean-llvm$(1):
+	@$$(call E, clean: llvm)
+	$$(Q)$$(CFG_NINJA) -C $$(CFG_LLVM_BUILD_DIR_$(1)) -t clean
+else ifeq ($$(findstring msvc,$(1)),msvc)
+clean-llvm$(1):
+	@$$(call E, clean: llvm)
+	$$(Q)$$(CFG_CMAKE) --build $$(CFG_LLVM_BUILD_DIR_$(1)) \
+		--config $$(LLVM_BUILD_CONFIG_MODE) \
+		--target clean
+else
+clean-llvm$(1):
+	@$$(call E, clean: llvm)
 	$$(Q)$$(MAKE) -C $$(CFG_LLVM_BUILD_DIR_$(1)) clean
-
 endif
 
 else
@@ -59,17 +81,6 @@ clean-llvm$(1):
 endif
 
 $$(LLVM_AR_$(1)): $$(LLVM_CONFIG_$(1))
-
-# This is used to independently force an LLVM clean rebuild
-# when we changed something not otherwise captured by builtin
-# dependencies. In these cases, commit a change that touches
-# the stamp in the source dir.
-$$(LLVM_STAMP_$(1)): $$(S)src/rustllvm/llvm-auto-clean-trigger
-	@$$(call E, make: cleaning llvm)
-	$$(Q)touch $$@.start_time
-	$$(Q)$$(MAKE) clean-llvm$(1)
-	@$$(call E, make: done cleaning llvm)
-	touch -r $$@.start_time $$@ && rm $$@.start_time
 
 ifeq ($$(CFG_ENABLE_LLVM_STATIC_STDCPP),1)
 LLVM_STDCPP_RUSTFLAGS_$(1) = -L "$$(dir $$(shell $$(CC_$(1)) $$(CFG_GCCISH_CFLAGS_$(1)) \
@@ -102,7 +113,7 @@ $(foreach host,$(CFG_HOST), \
 define LLVM_LINKAGE_DEPS
 $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.rustc_llvm: $$(LLVM_LINKAGE_PATH_$(2))
 RUSTFLAGS$(1)_rustc_llvm_T_$(2) += $$(shell echo $$(LLVM_ALL_COMPONENTS_$(2)) | tr '-' '_' |\
-	sed -e 's/^ //;s/\([^ ]*\)/\-\-cfg have_component_\1/g')
+	sed -e 's/^ //;s/\([^ ]*\)/\-\-cfg "llvm_component=\\"\1\\""/g')
 endef
 
 $(foreach source,$(CFG_HOST), \

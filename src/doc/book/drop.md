@@ -18,9 +18,9 @@ impl Drop for HasDrop {
 fn main() {
     let x = HasDrop;
 
-    // do stuff
+    // Do stuff.
 
-} // x goes out of scope here
+} // `x` goes out of scope here.
 ```
 
 When `x` goes out of scope at the end of `main()`, the code for `Drop` will
@@ -55,7 +55,7 @@ BOOM times 100!!!
 BOOM times 1!!!
 ```
 
-The TNT goes off before the firecracker does, because it was declared
+The `tnt` goes off before the `firecracker` does, because it was declared
 afterwards. Last in, first out.
 
 So what is `Drop` good for? Generally, `Drop` is used to clean up any resources

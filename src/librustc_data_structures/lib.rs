@@ -23,28 +23,50 @@
 #![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
       html_favicon_url = "https://www.rust-lang.org/favicon.ico",
       html_root_url = "https://doc.rust-lang.org/nightly/")]
+#![cfg_attr(not(stage0), deny(warnings))]
 
-#![feature(hashmap_hasher)]
 #![feature(nonzero)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
+#![feature(unboxed_closures)]
+#![feature(fn_traits)]
+#![feature(untagged_unions)]
+#![feature(associated_consts)]
+#![feature(unsize)]
 
+#![cfg_attr(unix, feature(libc))]
 #![cfg_attr(test, feature(test))]
 
 extern crate core;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 extern crate serialize as rustc_serialize; // used by deriving
+#[cfg(unix)]
+extern crate libc;
 
+pub mod array_vec;
+pub mod accumulate_vec;
+pub mod small_vec;
+pub mod base_n;
+pub mod bitslice;
+pub mod blake2b;
 pub mod bitvec;
+pub mod fmt_wrap;
 pub mod graph;
 pub mod ivar;
+pub mod indexed_set;
+pub mod indexed_vec;
 pub mod obligation_forest;
+pub mod snapshot_map;
 pub mod snapshot_vec;
 pub mod transitive_relation;
 pub mod unify;
 pub mod fnv;
+pub mod fx;
 pub mod tuple_slice;
 pub mod veccell;
+pub mod control_flow_graph;
+pub mod flock;
 
 // See comments in src/librustc/lib.rs
 #[doc(hidden)]

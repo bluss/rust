@@ -12,6 +12,50 @@
 //
 /// The boolean type.
 ///
+/// The `bool` represents a value, which could only be either `true` or `false`.
+///
+/// # Basic usage
+///
+/// `bool` implements various traits, such as [`BitAnd`], [`BitOr`], [`Not`], etc.,
+/// which allow us to perform boolean operations using `&`, `|` and `!`.
+///
+/// [`if`] always demands a `bool` value. [`assert!`], being an important macro in testing,
+/// checks whether an expression returns `true`.
+///
+/// ```
+/// let bool_val = true & false | false;
+/// assert!(!bool_val);
+/// ```
+///
+/// [`assert!`]: macro.assert.html
+/// [`if`]: ../book/if.html
+/// [`BitAnd`]: ops/trait.BitAnd.html
+/// [`BitOr`]: ops/trait.BitOr.html
+/// [`Not`]: ops/trait.Not.html
+///
+/// # Examples
+///
+/// A trivial example of the usage of `bool`,
+///
+/// ```
+/// let praise_the_borrow_checker = true;
+///
+/// // using the `if` conditional
+/// if praise_the_borrow_checker {
+///     println!("oh, yeah!");
+/// } else {
+///     println!("what?!!");
+/// }
+///
+/// // ... or, a match pattern
+/// match praise_the_borrow_checker {
+///     true => println!("keep praising!"),
+///     false => println!("you should praise!"),
+/// }
+/// ```
+///
+/// Also, since `bool` implements the [`Copy`](marker/trait.Copy.html) trait, we don't
+/// have to worry about the move semantics (just like the integer and float primitives).
 mod prim_bool { }
 
 #[doc(primitive = "char")]
@@ -33,7 +77,7 @@ mod prim_bool { }
 /// # Representation
 ///
 /// `char` is always four bytes in size. This is a different representation than
-/// a given character would have as part of a [`String`], for example:
+/// a given character would have as part of a [`String`]. For example:
 ///
 /// ```
 /// let v = vec!['h', 'e', 'l', 'l', 'o'];
@@ -50,18 +94,21 @@ mod prim_bool { }
 /// [`String`]: string/struct.String.html
 ///
 /// As always, remember that a human intuition for 'character' may not map to
-/// Unicode's definitions. For example, emoji symbols such as '❤️' are more than
-/// one byte; ❤️ in particular is six:
+/// Unicode's definitions. For example, emoji symbols such as '❤️' can be more
+/// than one Unicode code point; this ❤️ in particular is two:
 ///
 /// ```
 /// let s = String::from("❤️");
 ///
-/// // six bytes times one byte for each element
-/// assert_eq!(6, s.len() * std::mem::size_of::<u8>());
+/// // we get two chars out of a single ❤️
+/// let mut iter = s.chars();
+/// assert_eq!(Some('\u{2764}'), iter.next());
+/// assert_eq!(Some('\u{fe0f}'), iter.next());
+/// assert_eq!(None, iter.next());
 /// ```
 ///
-/// This also means it won't fit into a `char`, and so trying to create a
-/// literal with `let heart = '❤️';` gives an error:
+/// This means it won't fit into a `char`. Trying to create a literal with
+/// `let heart = '❤️';` gives an error:
 ///
 /// ```text
 /// error: character literal may only contain one codepoint: '❤
@@ -69,8 +116,8 @@ mod prim_bool { }
 ///             ^~
 /// ```
 ///
-/// Another implication of this is that if you want to do per-`char`acter
-/// processing, it can end up using a lot more memory:
+/// Another implication of the 4-byte fixed size of a `char` is that
+/// per-`char` processing can end up using a lot more memory:
 ///
 /// ```
 /// let s = String::from("love: ❤️");
@@ -78,19 +125,6 @@ mod prim_bool { }
 ///
 /// assert_eq!(12, s.len() * std::mem::size_of::<u8>());
 /// assert_eq!(32, v.len() * std::mem::size_of::<char>());
-/// ```
-///
-/// Or may give you results you may not expect:
-///
-/// ```
-/// let s = String::from("❤️");
-///
-/// let mut iter = s.chars();
-///
-/// // we get two chars out of a single ❤️
-/// assert_eq!(Some('\u{2764}'), iter.next());
-/// assert_eq!(Some('\u{fe0f}'), iter.next());
-/// assert_eq!(None, iter.next());
 /// ```
 mod prim_char { }
 
@@ -195,7 +229,7 @@ mod prim_unit { }
 ///
 /// fn main() {
 ///     unsafe {
-///         let my_num: *mut i32 = libc::malloc(mem::size_of::<i32>() as libc::size_t) as *mut i32;
+///         let my_num: *mut i32 = libc::malloc(mem::size_of::<i32>()) as *mut i32;
 ///         if my_num.is_null() {
 ///             panic!("failed to allocate memory");
 ///         }
@@ -215,32 +249,58 @@ mod prim_pointer { }
 #[doc(primitive = "array")]
 //
 /// A fixed-size array, denoted `[T; N]`, for the element type, `T`, and the
-/// non-negative compile time constant size, `N`.
+/// non-negative compile-time constant size, `N`.
 ///
-/// Arrays values are created either with an explicit expression that lists
-/// each element: `[x, y, z]` or a repeat expression: `[x; N]`. The repeat
-/// expression requires that the element type is `Copy`.
+/// There are two syntactic forms for creating an array:
 ///
-/// The type `[T; N]` is `Copy` if `T: Copy`.
+/// * A list with each element, i.e. `[x, y, z]`.
+/// * A repeat expression `[x; N]`, which produces an array with `N` copies of `x`.
+///   The type of `x` must be [`Copy`][copy].
 ///
 /// Arrays of sizes from 0 to 32 (inclusive) implement the following traits if
 /// the element type allows it:
 ///
-/// - `Clone` (only if `T: Copy`)
-/// - `Debug`
-/// - `IntoIterator` (implemented for `&[T; N]` and `&mut [T; N]`)
-/// - `PartialEq`, `PartialOrd`, `Ord`, `Eq`
-/// - `Hash`
-/// - `AsRef`, `AsMut`
-/// - `Borrow`, `BorrowMut`
-/// - `Default`
+/// - [`Clone`][clone] (only if `T: Copy`)
+/// - [`Debug`][debug]
+/// - [`IntoIterator`][intoiterator] (implemented for `&[T; N]` and `&mut [T; N]`)
+/// - [`PartialEq`][partialeq], [`PartialOrd`][partialord], [`Eq`][eq], [`Ord`][ord]
+/// - [`Hash`][hash]
+/// - [`AsRef`][asref], [`AsMut`][asmut]
+/// - [`Borrow`][borrow], [`BorrowMut`][borrowmut]
+/// - [`Default`][default]
 ///
-/// Arrays coerce to [slices (`[T]`)][slice], so their methods can be called on
-/// arrays.
+/// This limitation on the size `N` exists because Rust does not yet support
+/// code that is generic over the size of an array type. `[Foo; 3]` and `[Bar; 3]`
+/// are instances of same generic type `[T; 3]`, but `[Foo; 3]` and `[Foo; 5]` are
+/// entirely different types. As a stopgap, trait implementations are
+/// statically generated up to size 32.
+///
+/// Arrays of *any* size are [`Copy`][copy] if the element type is `Copy`. This
+/// works because the `Copy` trait is specially known to the compiler.
+///
+/// Arrays coerce to [slices (`[T]`)][slice], so a slice method may be called on
+/// an array. Indeed, this provides most of the API for working with arrays.
+/// Slices have a dynamic size and do not coerce to arrays.
+///
+/// There is no way to move elements out of an array. See [`mem::replace`][replace]
+/// for an alternative.
 ///
 /// [slice]: primitive.slice.html
-///
-/// Rust does not currently support generics over the size of an array type.
+/// [copy]: marker/trait.Copy.html
+/// [clone]: clone/trait.Clone.html
+/// [debug]: fmt/trait.Debug.html
+/// [intoiterator]: iter/trait.IntoIterator.html
+/// [partialeq]: cmp/trait.PartialEq.html
+/// [partialord]: cmp/trait.PartialOrd.html
+/// [eq]: cmp/trait.Eq.html
+/// [ord]: cmp/trait.Ord.html
+/// [hash]: hash/trait.Hash.html
+/// [asref]: convert/trait.AsRef.html
+/// [asmut]: convert/trait.AsMut.html
+/// [borrow]: borrow/trait.Borrow.html
+/// [borrowmut]: borrow/trait.BorrowMut.html
+/// [default]: default/trait.Default.html
+/// [replace]: mem/fn.replace.html
 ///
 /// # Examples
 ///
@@ -256,7 +316,30 @@ mod prim_pointer { }
 /// for x in &array {
 ///     print!("{} ", x);
 /// }
+/// ```
 ///
+/// An array itself is not iterable:
+///
+/// ```ignore
+/// let array: [i32; 3] = [0; 3];
+///
+/// for x in array { }
+/// // error: the trait bound `[i32; 3]: std::iter::Iterator` is not satisfied
+/// ```
+///
+/// The solution is to coerce the array to a slice by calling a slice method:
+///
+/// ```
+/// # let array: [i32; 3] = [0; 3];
+/// for x in array.iter() { }
+/// ```
+///
+/// If the array has 32 or fewer elements (see above), you can also use the
+/// array reference's `IntoIterator` implementation:
+///
+/// ```
+/// # let array: [i32; 3] = [0; 3];
+/// for x in &array { }
 /// ```
 ///
 mod prim_array { }
@@ -336,7 +419,7 @@ mod prim_slice { }
 /// // story has nineteen bytes
 /// assert_eq!(19, len);
 ///
-/// // We can re-build a str out of ptr and len. This is all unsafe becuase
+/// // We can re-build a str out of ptr and len. This is all unsafe because
 /// // we are responsible for making sure the two components are valid:
 /// let s = unsafe {
 ///     // First, we build a &[u8]...
@@ -351,56 +434,106 @@ mod prim_slice { }
 ///
 /// [`.as_ptr()`]: #method.as_ptr
 /// [`len()`]: #method.len
+///
+/// Note: This example shows the internals of `&str`. `unsafe` should not be
+/// used to get a string slice under normal circumstances. Use `.as_slice()`
+/// instead.
 mod prim_str { }
 
 #[doc(primitive = "tuple")]
 //
 /// A finite heterogeneous sequence, `(T, U, ..)`.
 ///
-/// To access the _N_-th element of a tuple one can use `N` itself
-/// as a field of the tuple.
+/// Let's cover each of those in turn:
 ///
-/// Indexing starts from zero, so `0` returns first value, `1`
-/// returns second value, and so on. In general, a tuple with _S_
-/// elements provides aforementioned fields from `0` to `S-1`.
+/// Tuples are *finite*. In other words, a tuple has a length. Here's a tuple
+/// of length `3`:
 ///
-/// If every type inside a tuple implements one of the following
-/// traits, then a tuple itself also implements it.
+/// ```
+/// ("hello", 5, 'c');
+/// ```
 ///
-/// * `Clone`
-/// * `PartialEq`
-/// * `Eq`
-/// * `PartialOrd`
-/// * `Ord`
-/// * `Debug`
-/// * `Default`
-/// * `Hash`
+/// 'Length' is also sometimes called 'arity' here; each tuple of a different
+/// length is a different, distinct type.
+///
+/// Tuples are *heterogeneous*. This means that each element of the tuple can
+/// have a different type. In that tuple above, it has the type:
+///
+/// ```rust,ignore
+/// (&'static str, i32, char)
+/// ```
+///
+/// Tuples are a *sequence*. This means that they can be accessed by position;
+/// this is called 'tuple indexing', and it looks like this:
+///
+/// ```rust
+/// let tuple = ("hello", 5, 'c');
+///
+/// assert_eq!(tuple.0, "hello");
+/// assert_eq!(tuple.1, 5);
+/// assert_eq!(tuple.2, 'c');
+/// ```
+///
+/// For more about tuples, see [the book](../book/primitive-types.html#tuples).
+///
+/// # Trait implementations
+///
+/// If every type inside a tuple implements one of the following traits, then a
+/// tuple itself also implements it.
+///
+/// * [`Clone`]
+/// * [`Copy`]
+/// * [`PartialEq`]
+/// * [`Eq`]
+/// * [`PartialOrd`]
+/// * [`Ord`]
+/// * [`Debug`]
+/// * [`Default`]
+/// * [`Hash`]
+///
+/// [`Clone`]: clone/trait.Clone.html
+/// [`Copy`]: marker/trait.Copy.html
+/// [`PartialEq`]: cmp/trait.PartialEq.html
+/// [`Eq`]: cmp/trait.Eq.html
+/// [`PartialOrd`]: cmp/trait.PartialOrd.html
+/// [`Ord`]: cmp/trait.Ord.html
+/// [`Debug`]: fmt/trait.Debug.html
+/// [`Default`]: default/trait.Default.html
+/// [`Hash`]: hash/trait.Hash.html
+///
+/// Due to a temporary restriction in Rust's type system, these traits are only
+/// implemented on tuples of arity 32 or less. In the future, this may change.
 ///
 /// # Examples
 ///
-/// Accessing elements of a tuple at specified indices:
+/// Basic usage:
 ///
 /// ```
-/// let x = ("colorless",  "green", "ideas", "sleep", "furiously");
-/// assert_eq!(x.3, "sleep");
+/// let tuple = ("hello", 5, 'c');
 ///
-/// let v = (3, 3);
-/// let u = (1, -5);
-/// assert_eq!(v.0 * u.0 + v.1 * u.1, -12);
+/// assert_eq!(tuple.0, "hello");
 /// ```
 ///
-/// Using traits implemented for tuples:
+/// Tuples are often used as a return type when you want to return more than
+/// one value:
 ///
 /// ```
-/// let a = (1, 2);
-/// let b = (3, 4);
-/// assert!(a != b);
+/// fn calculate_point() -> (i32, i32) {
+///     // Don't do a calculation, that's not the point of the example
+///     (4, 5)
+/// }
 ///
-/// let c = b.clone();
-/// assert!(b == c);
+/// let point = calculate_point();
 ///
-/// let d : (u32, f32) = Default::default();
-/// assert_eq!(d, (0, 0.0f32));
+/// assert_eq!(point.0, 4);
+/// assert_eq!(point.1, 5);
+///
+/// // Combining this with patterns can be nicer.
+///
+/// let (x, y) = calculate_point();
+///
+/// assert_eq!(x, 4);
+/// assert_eq!(y, 5);
 /// ```
 ///
 mod prim_tuple { }
@@ -426,6 +559,9 @@ mod prim_f64 { }
 ///
 /// *[See also the `std::i8` module](i8/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `i64` in there.
+///
 mod prim_i8 { }
 
 #[doc(primitive = "i16")]
@@ -433,6 +569,9 @@ mod prim_i8 { }
 /// The 16-bit signed integer type.
 ///
 /// *[See also the `std::i16` module](i16/index.html).*
+///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `i32` in there.
 ///
 mod prim_i16 { }
 
@@ -442,6 +581,9 @@ mod prim_i16 { }
 ///
 /// *[See also the `std::i32` module](i32/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `i16` in there.
+///
 mod prim_i32 { }
 
 #[doc(primitive = "i64")]
@@ -449,6 +591,9 @@ mod prim_i32 { }
 /// The 64-bit signed integer type.
 ///
 /// *[See also the `std::i64` module](i64/index.html).*
+///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `i8` in there.
 ///
 mod prim_i64 { }
 
@@ -458,6 +603,9 @@ mod prim_i64 { }
 ///
 /// *[See also the `std::u8` module](u8/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `u64` in there.
+///
 mod prim_u8 { }
 
 #[doc(primitive = "u16")]
@@ -465,6 +613,9 @@ mod prim_u8 { }
 /// The 16-bit unsigned integer type.
 ///
 /// *[See also the `std::u16` module](u16/index.html).*
+///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `u32` in there.
 ///
 mod prim_u16 { }
 
@@ -474,6 +625,9 @@ mod prim_u16 { }
 ///
 /// *[See also the `std::u32` module](u32/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `u16` in there.
+///
 mod prim_u32 { }
 
 #[doc(primitive = "u64")]
@@ -481,6 +635,9 @@ mod prim_u32 { }
 /// The 64-bit unsigned integer type.
 ///
 /// *[See also the `std::u64` module](u64/index.html).*
+///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `u8` in there.
 ///
 mod prim_u64 { }
 
@@ -490,6 +647,9 @@ mod prim_u64 { }
 ///
 /// *[See also the `std::isize` module](isize/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `usize` in there.
+///
 mod prim_isize { }
 
 #[doc(primitive = "usize")]
@@ -498,5 +658,7 @@ mod prim_isize { }
 ///
 /// *[See also the `std::usize` module](usize/index.html).*
 ///
+/// However, please note that examples are shared between primitive integer
+/// types. So it's normal if you see usage of types like `isize` in there.
+///
 mod prim_usize { }
-

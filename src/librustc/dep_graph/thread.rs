@@ -18,6 +18,7 @@
 //! to accumulate more messages. This way we only ever have two vectors
 //! allocated (and both have a fairly large capacity).
 
+use hir::def_id::DefId;
 use rustc_data_structures::veccell::VecCell;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::thread;
@@ -25,12 +26,14 @@ use std::thread;
 use super::DepGraphQuery;
 use super::DepNode;
 use super::edges::DepGraphEdges;
+use super::shadow::ShadowGraph;
 
+#[derive(Debug)]
 pub enum DepMessage {
-    Read(DepNode),
-    Write(DepNode),
-    PushTask(DepNode),
-    PopTask(DepNode),
+    Read(DepNode<DefId>),
+    Write(DepNode<DefId>),
+    PushTask(DepNode<DefId>),
+    PopTask(DepNode<DefId>),
     PushIgnore,
     PopIgnore,
     Query,
@@ -38,6 +41,17 @@ pub enum DepMessage {
 
 pub struct DepGraphThreadData {
     enabled: bool,
+
+    // The "shadow graph" is a debugging aid. We give it each message
+    // in real time as it arrives and it checks for various errors
+    // (for example, a read/write when there is no current task; it
+    // can also apply user-defined filters; see `shadow` module for
+    // details). This only occurs if debug-assertions are enabled.
+    //
+    // Note that in some cases the same errors will occur when the
+    // data is processed off the main thread, but that's annoying
+    // because it lacks precision about the source of the error.
+    shadow_graph: ShadowGraph,
 
     // current buffer, where we accumulate messages
     messages: VecCell<DepMessage>,
@@ -49,7 +63,7 @@ pub struct DepGraphThreadData {
     swap_out: Sender<Vec<DepMessage>>,
 
     // where to receive query results
-    query_in: Receiver<DepGraphQuery>,
+    query_in: Receiver<DepGraphQuery<DefId>>,
 }
 
 const INITIAL_CAPACITY: usize = 2048;
@@ -59,11 +73,14 @@ impl DepGraphThreadData {
         let (tx1, rx1) = mpsc::channel();
         let (tx2, rx2) = mpsc::channel();
         let (txq, rxq) = mpsc::channel();
+
         if enabled {
             thread::spawn(move || main(rx1, tx2, txq));
         }
+
         DepGraphThreadData {
             enabled: enabled,
+            shadow_graph: ShadowGraph::new(),
             messages: VecCell::with_capacity(INITIAL_CAPACITY),
             swap_in: rx2,
             swap_out: tx1,
@@ -71,10 +88,24 @@ impl DepGraphThreadData {
         }
     }
 
+    /// True if we are actually building the full dep-graph.
+    #[inline]
+    pub fn is_fully_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// True if (a) we are actually building the full dep-graph, or (b) we are
+    /// only enqueuing messages in order to sanity-check them (which happens
+    /// when debug assertions are enabled).
+    #[inline]
+    pub fn is_enqueue_enabled(&self) -> bool {
+        self.is_fully_enabled() || self.shadow_graph.enabled()
+    }
+
     /// Sends the current batch of messages to the thread. Installs a
     /// new vector of messages.
     fn swap(&self) {
-        assert!(self.enabled, "should never swap if not enabled");
+        assert!(self.is_fully_enabled(), "should never swap if not fully enabled");
 
         // should be a buffer waiting for us (though of course we may
         // have to wait for depgraph thread to finish processing the
@@ -89,8 +120,8 @@ impl DepGraphThreadData {
         self.swap_out.send(old_messages).unwrap();
     }
 
-    pub fn query(&self) -> DepGraphQuery {
-        assert!(self.enabled, "cannot query if dep graph construction not enabled");
+    pub fn query(&self) -> DepGraphQuery<DefId> {
+        assert!(self.is_fully_enabled(), "should never query if not fully enabled");
         self.enqueue(DepMessage::Query);
         self.swap();
         self.query_in.recv().unwrap()
@@ -100,11 +131,19 @@ impl DepGraphThreadData {
     /// the buffer is full, this may swap.)
     #[inline]
     pub fn enqueue(&self, message: DepMessage) {
-        if self.enabled {
-            let len = self.messages.push(message);
-            if len == INITIAL_CAPACITY {
-                self.swap();
-            }
+        assert!(self.is_enqueue_enabled(), "should never enqueue if not enqueue-enabled");
+        self.shadow_graph.enqueue(&message);
+        if self.is_fully_enabled() {
+            self.enqueue_enabled(message);
+        }
+    }
+
+    // Outline this fn since I expect it may want to be inlined
+    // separately.
+    fn enqueue_enabled(&self, message: DepMessage) {
+        let len = self.messages.push(message);
+        if len == INITIAL_CAPACITY {
+            self.swap();
         }
     }
 }
@@ -112,7 +151,7 @@ impl DepGraphThreadData {
 /// Definition of the depgraph thread.
 pub fn main(swap_in: Receiver<Vec<DepMessage>>,
             swap_out: Sender<Vec<DepMessage>>,
-            query_out: Sender<DepGraphQuery>) {
+            query_out: Sender<DepGraphQuery<DefId>>) {
     let mut edges = DepGraphEdges::new();
 
     // the compiler thread always expects a fresh buffer to be
@@ -132,6 +171,9 @@ pub fn main(swap_in: Receiver<Vec<DepMessage>>,
                 DepMessage::Query => query_out.send(edges.query()).unwrap(),
             }
         }
-        swap_out.send(messages).unwrap();
+        if let Err(_) = swap_out.send(messages) {
+            // the receiver must have been dropped already
+            break;
+        }
     }
 }

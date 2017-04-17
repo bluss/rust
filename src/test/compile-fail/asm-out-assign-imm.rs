@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-s390x
+
 #![feature(asm)]
 
 fn foo(x: isize) { println!("{}", x); }
@@ -18,11 +20,13 @@ fn foo(x: isize) { println!("{}", x); }
           target_arch = "aarch64"))]
 pub fn main() {
     let x: isize;
-    x = 1; //~ NOTE prior assignment occurs here
+    x = 1; //~ NOTE first assignment
     foo(x);
     unsafe {
         asm!("mov $1, $0" : "=r"(x) : "r"(5));
         //~^ ERROR re-assignment of immutable variable `x`
+        //~| NOTE re-assignment of immutable
+        //~| NOTE in this expansion of asm!
     }
     foo(x);
 }

@@ -17,7 +17,7 @@ Here are some things to remember about raw pointers that are different than
 other pointer types. They:
 
 - are not guaranteed to point to valid memory and are not even
-  guaranteed to be non-null (unlike both `Box` and `&`);
+  guaranteed to be non-NULL (unlike both `Box` and `&`);
 - do not have any automatic clean-up, unlike `Box`, and so require
   manual resource management;
 - are plain-old-data, that is, they don't move ownership, again unlike
@@ -101,11 +101,11 @@ programmer *must* guarantee this.
 The recommended method for the conversion is:
 
 ```rust
-// explicit cast
+// Explicit cast:
 let i: u32 = 1;
 let p_imm: *const u32 = &i as *const u32;
 
-// implicit coercion
+// Implicit coercion:
 let mut m: u32 = 2;
 let p_mut: *mut u32 = &mut m;
 

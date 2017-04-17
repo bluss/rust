@@ -13,9 +13,9 @@
 use build::{BlockAnd, BlockAndExtension, Builder};
 use build::expr::category::Category;
 use hair::*;
-use rustc::mir::repr::*;
+use rustc::mir::*;
 
-impl<'a,'tcx> Builder<'a,'tcx> {
+impl<'a, 'gcx, 'tcx> Builder<'a, 'gcx, 'tcx> {
     /// Compile `expr` into a value that can be used as an operand.
     /// If `expr` is an lvalue like `x`, this will introduce a
     /// temporary `tmp = x`, so that we capture the value of `x` at

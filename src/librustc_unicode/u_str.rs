@@ -14,7 +14,7 @@
 //! methods provided by the unicode parts of the CharExt trait.
 
 use core::char;
-use core::iter::Filter;
+use core::iter::{Filter, FusedIterator};
 use core::str::Split;
 
 /// An iterator over the non-whitespace substrings of a string,
@@ -30,9 +30,9 @@ pub trait UnicodeStr {
     fn split_whitespace<'a>(&'a self) -> SplitWhitespace<'a>;
     fn is_whitespace(&self) -> bool;
     fn is_alphanumeric(&self) -> bool;
-    fn trim<'a>(&'a self) -> &'a str;
-    fn trim_left<'a>(&'a self) -> &'a str;
-    fn trim_right<'a>(&'a self) -> &'a str;
+    fn trim(&self) -> &str;
+    fn trim_left(&self) -> &str;
+    fn trim_right(&self) -> &str;
 }
 
 impl UnicodeStr for str {
@@ -144,7 +144,9 @@ impl<I> Utf16Encoder<I> {
     }
 }
 
-impl<I> Iterator for Utf16Encoder<I> where I: Iterator<Item=char> {
+impl<I> Iterator for Utf16Encoder<I>
+    where I: Iterator<Item = char>
+{
     type Item = u16;
 
     #[inline]
@@ -157,7 +159,7 @@ impl<I> Iterator for Utf16Encoder<I> where I: Iterator<Item=char> {
 
         let mut buf = [0; 2];
         self.chars.next().map(|ch| {
-            let n = CharExt::encode_utf16(ch, &mut buf).unwrap_or(0);
+            let n = CharExt::encode_utf16(ch, &mut buf).len();
             if n == 2 {
                 self.extra = buf[1];
             }
@@ -175,6 +177,11 @@ impl<I> Iterator for Utf16Encoder<I> where I: Iterator<Item=char> {
     }
 }
 
+#[unstable(feature = "fused", issue = "35602")]
+impl<I> FusedIterator for Utf16Encoder<I>
+    where I: FusedIterator<Item = char> {}
+
+#[stable(feature = "split_whitespace", since = "1.1.0")]
 impl<'a> Iterator for SplitWhitespace<'a> {
     type Item = &'a str;
 
@@ -182,8 +189,13 @@ impl<'a> Iterator for SplitWhitespace<'a> {
         self.inner.next()
     }
 }
+
+#[stable(feature = "split_whitespace", since = "1.1.0")]
 impl<'a> DoubleEndedIterator for SplitWhitespace<'a> {
     fn next_back(&mut self) -> Option<&'a str> {
         self.inner.next_back()
     }
 }
+
+#[unstable(feature = "fused", issue = "35602")]
+impl<'a> FusedIterator for SplitWhitespace<'a> {}

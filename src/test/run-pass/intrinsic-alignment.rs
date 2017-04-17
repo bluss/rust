@@ -23,7 +23,9 @@ mod rusti {
           target_os = "freebsd",
           target_os = "dragonfly",
           target_os = "netbsd",
-          target_os = "openbsd"))]
+          target_os = "openbsd",
+          target_os = "solaris",
+          target_os = "emscripten"))]
 mod m {
     #[main]
     #[cfg(target_arch = "x86")]

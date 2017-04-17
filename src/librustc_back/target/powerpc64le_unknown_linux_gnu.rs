@@ -8,20 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use target::Target;
+use target::{Target, TargetResult};
 
-pub fn target() -> Target {
+pub fn target() -> TargetResult {
     let mut base = super::linux_base::opts();
+    base.cpu = "ppc64le".to_string();
     base.pre_link_args.push("-m64".to_string());
+    base.max_atomic_width = Some(64);
 
-    Target {
+    // see #36994
+    base.exe_allocation_crate = "alloc_system".to_string();
+
+    Ok(Target {
         llvm_target: "powerpc64le-unknown-linux-gnu".to_string(),
         target_endian: "little".to_string(),
         target_pointer_width: "64".to_string(),
-        arch: "powerpc64le".to_string(),
+        data_layout: "e-m:e-i64:64-n32:64".to_string(),
+        arch: "powerpc64".to_string(),
         target_os: "linux".to_string(),
         target_env: "gnu".to_string(),
         target_vendor: "unknown".to_string(),
         options: base,
-    }
+    })
 }

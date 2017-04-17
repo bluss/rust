@@ -11,11 +11,12 @@
 pub use self::CommentStyle::*;
 
 use ast;
-use codemap::{BytePos, CharPos, CodeMap, Pos};
+use codemap::CodeMap;
+use syntax_pos::{BytePos, CharPos, Pos};
 use errors;
 use parse::lexer::is_block_doc_comment;
 use parse::lexer::{StringReader, TokenAndSpan};
-use parse::lexer::{is_whitespace, Reader};
+use parse::lexer::{is_pattern_whitespace, Reader};
 use parse::lexer;
 use print::pprust;
 use str::char_at;
@@ -23,7 +24,7 @@ use str::char_at;
 use std::io::Read;
 use std::usize;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum CommentStyle {
     /// No code on either side of each line of the comment
     Isolated,
@@ -148,25 +149,24 @@ fn push_blank_line_comment(rdr: &StringReader, comments: &mut Vec<Comment>) {
     comments.push(Comment {
         style: BlankLine,
         lines: Vec::new(),
-        pos: rdr.last_pos,
+        pos: rdr.pos,
     });
 }
 
 fn consume_whitespace_counting_blank_lines(rdr: &mut StringReader, comments: &mut Vec<Comment>) {
-    while is_whitespace(rdr.curr) && !rdr.is_eof() {
-        if rdr.col == CharPos(0) && rdr.curr_is('\n') {
+    while is_pattern_whitespace(rdr.ch) && !rdr.is_eof() {
+        if rdr.ch_is('\n') {
             push_blank_line_comment(rdr, &mut *comments);
         }
         rdr.bump();
     }
 }
 
-
 fn read_shebang_comment(rdr: &mut StringReader,
                         code_to_the_left: bool,
                         comments: &mut Vec<Comment>) {
     debug!(">>> shebang comment");
-    let p = rdr.last_pos;
+    let p = rdr.pos;
     debug!("<<< shebang comment");
     comments.push(Comment {
         style: if code_to_the_left { Trailing } else { Isolated },
@@ -179,9 +179,9 @@ fn read_line_comments(rdr: &mut StringReader,
                       code_to_the_left: bool,
                       comments: &mut Vec<Comment>) {
     debug!(">>> line comments");
-    let p = rdr.last_pos;
+    let p = rdr.pos;
     let mut lines: Vec<String> = Vec::new();
-    while rdr.curr_is('/') && rdr.nextch_is('/') {
+    while rdr.ch_is('/') && rdr.nextch_is('/') {
         let line = rdr.read_one_line_comment();
         debug!("{}", line);
         // Doc comments are not put in comments.
@@ -239,7 +239,7 @@ fn read_block_comment(rdr: &mut StringReader,
                       code_to_the_left: bool,
                       comments: &mut Vec<Comment>) {
     debug!(">>> block comment");
-    let p = rdr.last_pos;
+    let p = rdr.pos;
     let mut lines: Vec<String> = Vec::new();
     let col = rdr.col;
     rdr.bump();
@@ -248,9 +248,9 @@ fn read_block_comment(rdr: &mut StringReader,
     let mut curr_line = String::from("/*");
 
     // doc-comments are not really comments, they are attributes
-    if (rdr.curr_is('*') && !rdr.nextch_is('*')) || rdr.curr_is('!') {
-        while !(rdr.curr_is('*') && rdr.nextch_is('/')) && !rdr.is_eof() {
-            curr_line.push(rdr.curr.unwrap());
+    if (rdr.ch_is('*') && !rdr.nextch_is('*')) || rdr.ch_is('!') {
+        while !(rdr.ch_is('*') && rdr.nextch_is('/')) && !rdr.is_eof() {
+            curr_line.push(rdr.ch.unwrap());
             rdr.bump();
         }
         if !rdr.is_eof() {
@@ -270,19 +270,19 @@ fn read_block_comment(rdr: &mut StringReader,
             if rdr.is_eof() {
                 panic!(rdr.fatal("unterminated block comment"));
             }
-            if rdr.curr_is('\n') {
+            if rdr.ch_is('\n') {
                 trim_whitespace_prefix_and_push_line(&mut lines, curr_line, col);
                 curr_line = String::new();
                 rdr.bump();
             } else {
-                curr_line.push(rdr.curr.unwrap());
-                if rdr.curr_is('/') && rdr.nextch_is('*') {
+                curr_line.push(rdr.ch.unwrap());
+                if rdr.ch_is('/') && rdr.nextch_is('*') {
                     rdr.bump();
                     rdr.bump();
                     curr_line.push('*');
                     level += 1;
                 } else {
-                    if rdr.curr_is('*') && rdr.nextch_is('/') {
+                    if rdr.ch_is('*') && rdr.nextch_is('/') {
                         rdr.bump();
                         rdr.bump();
                         curr_line.push('/');
@@ -304,7 +304,7 @@ fn read_block_comment(rdr: &mut StringReader,
         Isolated
     };
     rdr.consume_non_eol_whitespace();
-    if !rdr.is_eof() && !rdr.curr_is('\n') && lines.len() == 1 {
+    if !rdr.is_eof() && !rdr.ch_is('\n') && lines.len() == 1 {
         style = Mixed;
     }
     debug!("<<< block comment");
@@ -316,14 +316,22 @@ fn read_block_comment(rdr: &mut StringReader,
 }
 
 
-fn consume_comment(rdr: &mut StringReader, code_to_the_left: bool, comments: &mut Vec<Comment>) {
+fn consume_comment(rdr: &mut StringReader,
+                   comments: &mut Vec<Comment>,
+                   code_to_the_left: &mut bool,
+                   anything_to_the_left: &mut bool) {
     debug!(">>> consume comment");
-    if rdr.curr_is('/') && rdr.nextch_is('/') {
-        read_line_comments(rdr, code_to_the_left, comments);
-    } else if rdr.curr_is('/') && rdr.nextch_is('*') {
-        read_block_comment(rdr, code_to_the_left, comments);
-    } else if rdr.curr_is('#') && rdr.nextch_is('!') {
-        read_shebang_comment(rdr, code_to_the_left, comments);
+    if rdr.ch_is('/') && rdr.nextch_is('/') {
+        read_line_comments(rdr, *code_to_the_left, comments);
+        *code_to_the_left = false;
+        *anything_to_the_left = false;
+    } else if rdr.ch_is('/') && rdr.nextch_is('*') {
+        read_block_comment(rdr, *code_to_the_left, comments);
+        *anything_to_the_left = true;
+    } else if rdr.ch_is('#') && rdr.nextch_is('!') {
+        read_shebang_comment(rdr, *code_to_the_left, comments);
+        *code_to_the_left = false;
+        *anything_to_the_left = false;
     } else {
         panic!();
     }
@@ -346,29 +354,35 @@ pub fn gather_comments_and_literals(span_diagnostic: &errors::Handler,
     srdr.read_to_end(&mut src).unwrap();
     let src = String::from_utf8(src).unwrap();
     let cm = CodeMap::new();
-    let filemap = cm.new_filemap(path, src);
+    let filemap = cm.new_filemap(path, None, src);
     let mut rdr = lexer::StringReader::new_raw(span_diagnostic, filemap);
 
     let mut comments: Vec<Comment> = Vec::new();
     let mut literals: Vec<Literal> = Vec::new();
-    let mut first_read: bool = true;
+    let mut code_to_the_left = false; // Only code
+    let mut anything_to_the_left = false; // Code or comments
     while !rdr.is_eof() {
         loop {
-            let mut code_to_the_left = !first_read;
+            // Eat all the whitespace and count blank lines.
             rdr.consume_non_eol_whitespace();
-            if rdr.curr_is('\n') {
+            if rdr.ch_is('\n') {
+                if anything_to_the_left {
+                    rdr.bump(); // The line is not blank, do not count.
+                }
+                consume_whitespace_counting_blank_lines(&mut rdr, &mut comments);
                 code_to_the_left = false;
-                consume_whitespace_counting_blank_lines(&mut rdr, &mut comments);
+                anything_to_the_left = false;
             }
-            while rdr.peeking_at_comment() {
-                consume_comment(&mut rdr, code_to_the_left, &mut comments);
-                consume_whitespace_counting_blank_lines(&mut rdr, &mut comments);
+            // Eat one comment group
+            if rdr.peeking_at_comment() {
+                consume_comment(&mut rdr, &mut comments,
+                                &mut code_to_the_left, &mut anything_to_the_left);
+            } else {
+                break
             }
-            break;
         }
 
-
-        let bstart = rdr.last_pos;
+        let bstart = rdr.pos;
         rdr.next_token();
         // discard, and look ahead; we're working with internal state
         let TokenAndSpan { tok, sp } = rdr.peek();
@@ -383,7 +397,8 @@ pub fn gather_comments_and_literals(span_diagnostic: &errors::Handler,
         } else {
             debug!("tok: {}", pprust::token_to_string(&tok));
         }
-        first_read = false;
+        code_to_the_left = true;
+        anything_to_the_left = true;
     }
 
     (comments, literals)

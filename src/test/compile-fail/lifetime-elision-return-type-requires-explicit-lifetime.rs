@@ -11,6 +11,7 @@
 // Lifetime annotation needed because we have no arguments.
 fn f() -> &isize {    //~ ERROR missing lifetime specifier
 //~^ HELP there is no value for it to be borrowed from
+//~| HELP consider giving it a 'static lifetime
     panic!()
 }
 
@@ -33,6 +34,7 @@ fn h(_x: &Foo) -> &isize { //~ ERROR missing lifetime specifier
 
 fn i(_x: isize) -> &isize { //~ ERROR missing lifetime specifier
 //~^ HELP this function's return type contains a borrowed value
+//~| HELP consider giving it an explicit bounded or 'static lifetime
     panic!()
 }
 

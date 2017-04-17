@@ -13,47 +13,51 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
-      html_root_url = "https://doc.rust-lang.org/nightly/")]
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
+       html_root_url = "https://doc.rust-lang.org/nightly/")]
+#![cfg_attr(not(stage0), deny(warnings))]
 
 #![feature(box_patterns)]
-#![feature(enumset)]
+#![feature(conservative_impl_trait)]
+#![feature(core_intrinsics)]
+#![feature(proc_macro_internals)]
+#![feature(proc_macro_lib)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
+#![feature(specialization)]
 #![feature(staged_api)]
-#![feature(time2)]
-
-#[macro_use] extern crate log;
-#[macro_use] extern crate syntax;
-#[macro_use] #[no_link] extern crate rustc_bitflags;
-
-extern crate flate;
-extern crate rbml;
-extern crate serialize;
-
-extern crate rustc;
-extern crate rustc_back;
-extern crate rustc_front;
-extern crate rustc_llvm;
-
-pub use rustc::middle;
 
 #[macro_use]
-mod macros;
+extern crate log;
+#[macro_use]
+extern crate syntax;
+extern crate syntax_pos;
+extern crate flate;
+extern crate serialize as rustc_serialize; // used by deriving
+extern crate rustc_errors as errors;
+extern crate syntax_ext;
+extern crate proc_macro;
 
-pub mod diagnostics;
+#[macro_use]
+extern crate rustc;
+extern crate rustc_back;
+extern crate rustc_const_math;
+extern crate rustc_data_structures;
+extern crate rustc_llvm;
 
-pub mod astencode;
-pub mod common;
-pub mod tyencode;
-pub mod tydecode;
-pub mod encoder;
-pub mod decoder;
+mod diagnostics;
+
+mod astencode;
+mod index_builder;
+mod index;
+mod encoder;
+mod decoder;
+mod cstore_impl;
+mod schema;
+
 pub mod creader;
-pub mod csearch;
 pub mod cstore;
-pub mod index;
-pub mod loader;
-pub mod macro_import;
-pub mod tls_context;
+pub mod locator;
+
+__build_diagnostic_array! { librustc_metadata, DIAGNOSTICS }

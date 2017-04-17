@@ -9,15 +9,16 @@
 // except according to those terms.
 
 
-use front::map as ast_map;
-use middle::def_id::{CRATE_DEF_INDEX};
+use dep_graph::DepNode;
+use hir::map as ast_map;
+use hir::def_id::{CRATE_DEF_INDEX};
 use session::{config, Session};
 use syntax::ast::NodeId;
 use syntax::attr;
-use syntax::codemap::Span;
 use syntax::entry::EntryPointType;
-use rustc_front::hir::{Item, ItemFn};
-use rustc_front::intravisit::Visitor;
+use syntax_pos::Span;
+use hir::{Item, ItemFn, ImplItem};
+use hir::itemlikevisit::ItemLikeVisitor;
 
 struct EntryContext<'a, 'tcx: 'a> {
     session: &'a Session,
@@ -38,16 +39,23 @@ struct EntryContext<'a, 'tcx: 'a> {
     non_main_fns: Vec<(NodeId, Span)> ,
 }
 
-impl<'a, 'tcx> Visitor<'tcx> for EntryContext<'a, 'tcx> {
+impl<'a, 'tcx> ItemLikeVisitor<'tcx> for EntryContext<'a, 'tcx> {
     fn visit_item(&mut self, item: &'tcx Item) {
         let def_id = self.map.local_def_id(item.id);
         let def_key = self.map.def_key(def_id);
         let at_root = def_key.parent == Some(CRATE_DEF_INDEX);
         find_item(item, self, at_root);
     }
+
+
+    fn visit_impl_item(&mut self, _impl_item: &'tcx ImplItem) {
+        // entry fn is never an impl item
+    }
 }
 
 pub fn find_entry_point(session: &Session, ast_map: &ast_map::Map) {
+    let _task = ast_map.dep_graph.in_task(DepNode::EntryPoint);
+
     let any_exe = session.crate_types.borrow().iter().any(|ty| {
         *ty == config::CrateTypeExecutable
     });
@@ -71,7 +79,7 @@ pub fn find_entry_point(session: &Session, ast_map: &ast_map::Map) {
         non_main_fns: Vec::new(),
     };
 
-    ast_map.krate().visit_all_items(&mut ctxt);
+    ast_map.krate().visit_all_item_likes(&mut ctxt);
 
     configure_main(&mut ctxt);
 }
@@ -85,7 +93,7 @@ fn entry_point_type(item: &Item, at_root: bool) -> EntryPointType {
                 EntryPointType::Start
             } else if attr::contains_name(&item.attrs, "main") {
                 EntryPointType::MainAttr
-            } else if item.name.as_str() == "main" {
+            } else if item.name == "main" {
                 if at_root {
                     // This is a top-level function so can be 'main'
                     EntryPointType::MainNamed
@@ -118,16 +126,24 @@ fn find_item(item: &Item, ctxt: &mut EntryContext, at_root: bool) {
             if ctxt.attr_main_fn.is_none() {
                 ctxt.attr_main_fn = Some((item.id, item.span));
             } else {
-                span_err!(ctxt.session, item.span, E0137,
-                          "multiple functions with a #[main] attribute");
+                struct_span_err!(ctxt.session, item.span, E0137,
+                          "multiple functions with a #[main] attribute")
+                .span_label(item.span, &format!("additional #[main] function"))
+                .span_label(ctxt.attr_main_fn.unwrap().1, &format!("first #[main] function"))
+                .emit();
             }
         },
         EntryPointType::Start => {
             if ctxt.start_fn.is_none() {
                 ctxt.start_fn = Some((item.id, item.span));
             } else {
-                span_err!(ctxt.session, item.span, E0138,
-                          "multiple 'start' functions");
+                struct_span_err!(
+                    ctxt.session, item.span, E0138,
+                    "multiple 'start' functions")
+                    .span_label(ctxt.start_fn.unwrap().1,
+                                &format!("previous `start` function here"))
+                    .span_label(item.span, &format!("multiple `start` functions"))
+                    .emit();
             }
         },
         EntryPointType::None => ()

@@ -31,10 +31,7 @@ use std::fmt;
 // Copied out of syntax::util::parser_testing
 
 pub fn string_to_parser<'a>(ps: &'a ParseSess, source_str: String) -> Parser<'a> {
-    new_parser_from_source_str(ps,
-                               Vec::new(),
-                               "bogofile".to_string(),
-                               source_str)
+    new_parser_from_source_str(ps, "bogofile".to_string(), source_str)
 }
 
 fn with_error_checking_parse<'a, T, F>(s: String, ps: &'a ParseSess, f: F) -> PResult<'a, T> where
@@ -59,7 +56,7 @@ fn expr<'a>(s: &str, ps: &'a ParseSess) -> PResult<'a, P<ast::Expr>> {
     })
 }
 
-fn stmt<'a>(s: &str, ps: &'a ParseSess) -> PResult<'a, P<ast::Stmt>> {
+fn stmt<'a>(s: &str, ps: &'a ParseSess) -> PResult<'a, ast::Stmt> {
     with_error_checking_parse(s.to_string(), ps, |p| {
         p.parse_stmt().map(|s| s.unwrap())
     })
@@ -86,7 +83,7 @@ fn check_expr_attrs(es: &str, expected: &[&str]) {
     let actual = &e.attrs;
     str_compare(es,
                 &expected.iter().map(|r| attr(r, &ps).unwrap()).collect::<Vec<_>>(),
-                actual.as_attr_slice(),
+                &actual,
                 pprust::attribute_to_string);
 }
 

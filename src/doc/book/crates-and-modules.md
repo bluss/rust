@@ -26,8 +26,7 @@ two languages for those phrases to be in. We’ll use this module layout:
 ```text
                                     +-----------+
                                 +---| greetings |
-                                |   +-----------+
-                  +---------+   |
+                  +---------+   |   +-----------+
               +---| english |---+
               |   +---------+   |   +-----------+
               |                 +---| farewells |
@@ -37,8 +36,7 @@ two languages for those phrases to be in. We’ll use this module layout:
               |                 +---| greetings |
               |   +----------+  |   +-----------+
               +---| japanese |--+
-                  +----------+  |
-                                |   +-----------+
+                  +----------+  |   +-----------+
                                 +---| farewells |
                                     +-----------+
 ```
@@ -115,10 +113,10 @@ $ ls target/debug
 build  deps  examples  libphrases-a7448e02a0468eaa.rlib  native
 ```
 
-`libphrases-hash.rlib` is the compiled crate. Before we see how to use this
+`libphrases-<hash>.rlib` is the compiled crate. Before we see how to use this
 crate from another crate, let’s break it up into multiple files.
 
-# Multiple file crates
+# Multiple File Crates
 
 If each crate were just one file, these files would get very large. It’s often
 easier to split up crates into multiple files, and Rust supports this in two
@@ -128,7 +126,7 @@ Instead of declaring a module like this:
 
 ```rust,ignore
 mod english {
-    // contents of our module go here
+    // Contents of our module go here.
 }
 ```
 
@@ -190,13 +188,19 @@ mod farewells;
 ```
 
 Again, these declarations tell Rust to look for either
-`src/english/greetings.rs` and `src/japanese/greetings.rs` or
-`src/english/farewells/mod.rs` and `src/japanese/farewells/mod.rs`. Because
-these sub-modules don’t have their own sub-modules, we’ve chosen to make them
-`src/english/greetings.rs` and `src/japanese/farewells.rs`. Whew!
+`src/english/greetings.rs`, `src/english/farewells.rs`,
+`src/japanese/greetings.rs` and `src/japanese/farewells.rs` or
+`src/english/greetings/mod.rs`, `src/english/farewells/mod.rs`,
+`src/japanese/greetings/mod.rs` and
+`src/japanese/farewells/mod.rs`. Because these sub-modules don’t have
+their own sub-modules, we’ve chosen to make them
+`src/english/greetings.rs`, `src/english/farewells.rs`,
+`src/japanese/greetings.rs` and `src/japanese/farewells.rs`. Whew!
 
-The contents of `src/english/greetings.rs` and `src/japanese/farewells.rs` are
-both empty at the moment. Let’s add some functions.
+The contents of `src/english/greetings.rs`,
+`src/english/farewells.rs`, `src/japanese/greetings.rs` and
+`src/japanese/farewells.rs` are all empty at the moment. Let’s add
+some functions.
 
 Put this in `src/english/greetings.rs`:
 
@@ -567,10 +571,11 @@ to it as "sayings". Similarly, the first `use` statement pulls in the
 `ja_greetings` as opposed to simply `greetings`. This can help to avoid
 ambiguity when importing similarly-named items from different places.
 
-The second `use` statement uses a star glob to bring in _all_ symbols from the
-`sayings::japanese::farewells` module. As you can see we can later refer to
+The second `use` statement uses a star glob to bring in all public symbols from
+the `sayings::japanese::farewells` module. As you can see we can later refer to
 the Japanese `goodbye` function with no module qualifiers. This kind of glob
-should be used sparingly.
+should be used sparingly. It’s worth noting that it only imports the public
+symbols, even if the code doing the globbing is in the same module.
 
 The third `use` statement bears more explanation. It's using "brace expansion"
 globbing to compress three `use` statements into one (this sort of syntax

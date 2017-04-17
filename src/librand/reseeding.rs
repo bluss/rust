@@ -83,8 +83,8 @@ impl<S, R: SeedableRng<S>, Rsdr: Reseeder<R> + Default>
         self.bytes_generated = 0;
     }
 
-    /// Create a new `ReseedingRng` from the given reseeder and
-    /// seed. This uses a default value for `generation_threshold`.
+/// Create a new `ReseedingRng` from the given reseeder and
+/// seed. This uses a default value for `generation_threshold`.
     fn from_seed((rsdr, seed): (Rsdr, S)) -> ReseedingRng<R, Rsdr> {
         ReseedingRng {
             rng: SeedableRng::from_seed(seed),
@@ -113,6 +113,7 @@ impl<R: Rng + Default> Reseeder<R> for ReseedWithDefault {
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Default for ReseedWithDefault {
+    /// Creates an instance of `ReseedWithDefault`.
     fn default() -> ReseedWithDefault {
         ReseedWithDefault
     }
@@ -122,8 +123,8 @@ impl Default for ReseedWithDefault {
 mod tests {
     use std::prelude::v1::*;
 
-    use super::{ReseedingRng, ReseedWithDefault};
-    use {SeedableRng, Rng};
+    use super::{ReseedWithDefault, ReseedingRng};
+    use {Rng, SeedableRng};
 
     struct Counter {
         i: u32,
@@ -137,6 +138,7 @@ mod tests {
         }
     }
     impl Default for Counter {
+        /// Constructs a `Counter` with initial value zero.
         fn default() -> Counter {
             Counter { i: 0 }
         }
@@ -166,8 +168,9 @@ mod tests {
     fn test_rng_seeded() {
         let mut ra: MyRng = SeedableRng::from_seed((ReseedWithDefault, 2));
         let mut rb: MyRng = SeedableRng::from_seed((ReseedWithDefault, 2));
-        assert!(ra.gen_ascii_chars().take(100)
-                  .eq(rb.gen_ascii_chars().take(100)));
+        assert!(ra.gen_ascii_chars()
+            .take(100)
+            .eq(rb.gen_ascii_chars().take(100)));
     }
 
     #[test]

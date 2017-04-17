@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(reflect_marker)]
+
 // Test that types that appear in input types in an object type are
 // subject to the reflect check.
 
@@ -23,7 +25,7 @@ struct Struct<T>(T);
 fn is_reflect<T:Reflect>() { }
 
 fn a<T>() {
-    is_reflect::<T>(); //~ ERROR not implemented
+    is_reflect::<T>(); //~ ERROR E0277
 }
 
 fn ok_a<T: Reflect>() {
@@ -31,7 +33,7 @@ fn ok_a<T: Reflect>() {
 }
 
 fn b<T>() {
-    is_reflect::<Box<Get<T>>>(); //~ ERROR not implemented
+    is_reflect::<Box<Get<T>>>(); //~ ERROR E0277
 }
 
 fn ok_b<T: Reflect>() {
@@ -39,7 +41,7 @@ fn ok_b<T: Reflect>() {
 }
 
 fn c<T>() {
-    is_reflect::<Box<Get<Struct<T>>>>(); //~ ERROR not implemented
+    is_reflect::<Box<Get<Struct<T>>>>(); //~ ERROR E0277
 }
 
 fn main() {

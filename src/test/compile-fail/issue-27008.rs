@@ -13,9 +13,9 @@ struct S;
 fn main() {
     let b = [0; S];
     //~^ ERROR mismatched types
+    //~| expected type `usize`
+    //~| found type `S`
+    //~| expected usize, found struct `S`
+    //~| ERROR expected `usize` for repeat count, found struct [E0306]
     //~| expected `usize`
-    //~| found `S`
-    //~| expected usize
-    //~| found struct `S`
-    //~| ERROR expected positive integer for repeat count, found struct
 }

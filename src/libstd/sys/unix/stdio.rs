@@ -25,6 +25,13 @@ impl Stdin {
         fd.into_raw();
         ret
     }
+
+    pub fn read_to_end(&self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        let fd = FileDesc::new(libc::STDIN_FILENO);
+        let ret = fd.read_to_end(buf);
+        fd.into_raw();
+        ret
+    }
 }
 
 impl Stdout {
@@ -58,3 +65,6 @@ impl io::Write for Stderr {
     }
     fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
+
+pub const EBADF_ERR: i32 = ::libc::EBADF as i32;
+pub const STDIN_BUF_SIZE: usize = ::sys_common::io::DEFAULT_BUF_SIZE;

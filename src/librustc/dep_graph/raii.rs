@@ -8,24 +8,32 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use hir::def_id::DefId;
 use super::DepNode;
 use super::thread::{DepGraphThreadData, DepMessage};
 
 pub struct DepTask<'graph> {
     data: &'graph DepGraphThreadData,
-    key: DepNode,
+    key: Option<DepNode<DefId>>,
 }
 
 impl<'graph> DepTask<'graph> {
-    pub fn new(data: &'graph DepGraphThreadData, key: DepNode) -> DepTask<'graph> {
-        data.enqueue(DepMessage::PushTask(key));
-        DepTask { data: data, key: key }
+    pub fn new(data: &'graph DepGraphThreadData, key: DepNode<DefId>)
+               -> Option<DepTask<'graph>> {
+        if data.is_enqueue_enabled() {
+            data.enqueue(DepMessage::PushTask(key.clone()));
+            Some(DepTask { data: data, key: Some(key) })
+        } else {
+            None
+        }
     }
 }
 
 impl<'graph> Drop for DepTask<'graph> {
     fn drop(&mut self) {
-        self.data.enqueue(DepMessage::PopTask(self.key));
+        if self.data.is_enqueue_enabled() {
+            self.data.enqueue(DepMessage::PopTask(self.key.take().unwrap()));
+        }
     }
 }
 
@@ -34,14 +42,21 @@ pub struct IgnoreTask<'graph> {
 }
 
 impl<'graph> IgnoreTask<'graph> {
-    pub fn new(data: &'graph DepGraphThreadData) -> IgnoreTask<'graph> {
-        data.enqueue(DepMessage::PushIgnore);
-        IgnoreTask { data: data }
+    pub fn new(data: &'graph DepGraphThreadData) -> Option<IgnoreTask<'graph>> {
+        if data.is_enqueue_enabled() {
+            data.enqueue(DepMessage::PushIgnore);
+            Some(IgnoreTask { data: data })
+        } else {
+            None
+        }
     }
 }
 
 impl<'graph> Drop for IgnoreTask<'graph> {
     fn drop(&mut self) {
-        self.data.enqueue(DepMessage::PopIgnore);
+        if self.data.is_enqueue_enabled() {
+            self.data.enqueue(DepMessage::PopIgnore);
+        }
     }
 }
+

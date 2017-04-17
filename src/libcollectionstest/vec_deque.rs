@@ -10,6 +10,7 @@
 
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::collections::vec_deque::Drain;
 
 use test;
 
@@ -45,10 +46,6 @@ fn test_simple() {
     assert_eq!(d.len(), 3);
     d.push_front(1);
     assert_eq!(d.len(), 4);
-    debug!("{}", d[0]);
-    debug!("{}", d[1]);
-    debug!("{}", d[2]);
-    debug!("{}", d[3]);
     assert_eq!(d[0], 1);
     assert_eq!(d[1], 2);
     assert_eq!(d[2], 3);
@@ -56,7 +53,7 @@ fn test_simple() {
 }
 
 #[cfg(test)]
-fn test_parameterized<T:Clone + PartialEq + Debug>(a: T, b: T, c: T, d: T) {
+fn test_parameterized<T: Clone + PartialEq + Debug>(a: T, b: T, c: T, d: T) {
     let mut deq = VecDeque::new();
     assert_eq!(deq.len(), 0);
     deq.push_front(a.clone());
@@ -190,7 +187,7 @@ enum Taggypar<T> {
 struct RecCy {
     x: i32,
     y: i32,
-    t: Taggy
+    t: Taggy,
 }
 
 #[test]
@@ -213,10 +210,26 @@ fn test_param_taggypar() {
 
 #[test]
 fn test_param_reccy() {
-    let reccy1 = RecCy { x: 1, y: 2, t: One(1) };
-    let reccy2 = RecCy { x: 345, y: 2, t: Two(1, 2) };
-    let reccy3 = RecCy { x: 1, y: 777, t: Three(1, 2, 3) };
-    let reccy4 = RecCy { x: 19, y: 252, t: Two(17, 42) };
+    let reccy1 = RecCy {
+        x: 1,
+        y: 2,
+        t: One(1),
+    };
+    let reccy2 = RecCy {
+        x: 345,
+        y: 2,
+        t: Two(1, 2),
+    };
+    let reccy3 = RecCy {
+        x: 1,
+        y: 777,
+        t: Three(1, 2, 3),
+    };
+    let reccy4 = RecCy {
+        x: 19,
+        y: 252,
+        t: Two(17, 42),
+    };
     test_parameterized::<RecCy>(reccy1, reccy2, reccy3, reccy4);
 }
 
@@ -261,13 +274,13 @@ fn test_with_capacity_non_power_two() {
     // underlying Vec which didn't hold and lead
     // to corruption.
     // (Vec grows to next power of two)
-    //good- [9, 12, 15, X, X, X, X, |6]
-    //bug-  [15, 12, X, X, X, |6, X, X]
+    // good- [9, 12, 15, X, X, X, X, |6]
+    // bug-  [15, 12, X, X, X, |6, X, X]
     assert_eq!(d3.pop_front(), Some(6));
 
     // Which leads us to the following state which
     // would be a failure case.
-    //bug-  [15, 12, X, X, X, X, |X, X]
+    // bug-  [15, 12, X, X, X, X, |X, X]
     assert_eq!(d3.front(), Some(&9));
 }
 
@@ -305,7 +318,7 @@ fn test_iter() {
         d.push_back(i);
     }
     {
-        let b: &[_] = &[&0,&1,&2,&3,&4];
+        let b: &[_] = &[&0, &1, &2, &3, &4];
         assert_eq!(d.iter().collect::<Vec<_>>(), b);
     }
 
@@ -313,7 +326,7 @@ fn test_iter() {
         d.push_front(i);
     }
     {
-        let b: &[_] = &[&8,&7,&6,&0,&1,&2,&3,&4];
+        let b: &[_] = &[&8, &7, &6, &0, &1, &2, &3, &4];
         assert_eq!(d.iter().collect::<Vec<_>>(), b);
     }
 
@@ -322,7 +335,10 @@ fn test_iter() {
     loop {
         match it.next() {
             None => break,
-            _ => { len -= 1; assert_eq!(it.size_hint(), (len, Some(len))) }
+            _ => {
+                len -= 1;
+                assert_eq!(it.size_hint(), (len, Some(len)))
+            }
         }
     }
 }
@@ -336,14 +352,14 @@ fn test_rev_iter() {
         d.push_back(i);
     }
     {
-        let b: &[_] = &[&4,&3,&2,&1,&0];
+        let b: &[_] = &[&4, &3, &2, &1, &0];
         assert_eq!(d.iter().rev().collect::<Vec<_>>(), b);
     }
 
     for i in 6..9 {
         d.push_front(i);
     }
-    let b: &[_] = &[&4,&3,&2,&1,&0,&6,&7,&8];
+    let b: &[_] = &[&4, &3, &2, &1, &0, &6, &7, &8];
     assert_eq!(d.iter().rev().collect::<Vec<_>>(), b);
 }
 
@@ -428,7 +444,7 @@ fn test_into_iter() {
             d.push_back(i);
         }
 
-        let b = vec![0,1,2,3,4];
+        let b = vec![0, 1, 2, 3, 4];
         assert_eq!(d.into_iter().collect::<Vec<_>>(), b);
     }
 
@@ -442,7 +458,7 @@ fn test_into_iter() {
             d.push_front(i);
         }
 
-        let b = vec![8,7,6,0,1,2,3,4];
+        let b = vec![8, 7, 6, 0, 1, 2, 3, 4];
         assert_eq!(d.into_iter().collect::<Vec<_>>(), b);
     }
 
@@ -506,7 +522,7 @@ fn test_drain() {
             d.push_front(i);
         }
 
-        assert_eq!(d.drain(..).collect::<Vec<_>>(), [8,7,6,0,1,2,3,4]);
+        assert_eq!(d.drain(..).collect::<Vec<_>>(), [8, 7, 6, 0, 1, 2, 3, 4]);
         assert!(d.is_empty());
     }
 
@@ -536,7 +552,7 @@ fn test_drain() {
 
 #[test]
 fn test_from_iter() {
-    let v = vec!(1,2,3,4,5,6,7);
+    let v = vec![1, 2, 3, 4, 5, 6, 7];
     let deq: VecDeque<_> = v.iter().cloned().collect();
     let u: Vec<_> = deq.iter().cloned().collect();
     assert_eq!(u, v);
@@ -544,7 +560,7 @@ fn test_from_iter() {
     let seq = (0..).step_by(2).take(256);
     let deq: VecDeque<_> = seq.collect();
     for (i, &x) in deq.iter().enumerate() {
-        assert_eq!(2*i, x);
+        assert_eq!(2 * i, x);
     }
     assert_eq!(deq.len(), 256);
 }
@@ -589,20 +605,66 @@ fn test_eq() {
 
 #[test]
 fn test_hash() {
-  let mut x = VecDeque::new();
-  let mut y = VecDeque::new();
+    let mut x = VecDeque::new();
+    let mut y = VecDeque::new();
 
-  x.push_back(1);
-  x.push_back(2);
-  x.push_back(3);
+    x.push_back(1);
+    x.push_back(2);
+    x.push_back(3);
 
-  y.push_back(0);
-  y.push_back(1);
-  y.pop_front();
-  y.push_back(2);
-  y.push_back(3);
+    y.push_back(0);
+    y.push_back(1);
+    y.pop_front();
+    y.push_back(2);
+    y.push_back(3);
 
-  assert!(::hash(&x) == ::hash(&y));
+    assert!(::hash(&x) == ::hash(&y));
+}
+
+#[test]
+fn test_hash_after_rotation() {
+    // test that two deques hash equal even if elements are laid out differently
+    let len = 28;
+    let mut ring: VecDeque<i32> = (0..len as i32).collect();
+    let orig = ring.clone();
+    for _ in 0..ring.capacity() {
+        // shift values 1 step to the right by pop, sub one, push
+        ring.pop_front();
+        for elt in &mut ring {
+            *elt -= 1;
+        }
+        ring.push_back(len - 1);
+        assert_eq!(::hash(&orig), ::hash(&ring));
+        assert_eq!(orig, ring);
+        assert_eq!(ring, orig);
+    }
+}
+
+#[test]
+fn test_eq_after_rotation() {
+    // test that two deques are equal even if elements are laid out differently
+    let len = 28;
+    let mut ring: VecDeque<i32> = (0..len as i32).collect();
+    let mut shifted = ring.clone();
+    for _ in 0..10 {
+        // shift values 1 step to the right by pop, sub one, push
+        ring.pop_front();
+        for elt in &mut ring {
+            *elt -= 1;
+        }
+        ring.push_back(len - 1);
+    }
+
+    // try every shift
+    for _ in 0..shifted.capacity() {
+        shifted.pop_front();
+        for elt in &mut shifted {
+            *elt -= 1;
+        }
+        shifted.push_back(len - 1);
+        assert_eq!(shifted, ring);
+        assert_eq!(ring, shifted);
+    }
 }
 
 #[test]
@@ -623,19 +685,23 @@ fn test_show() {
     let ringbuf: VecDeque<_> = (0..10).collect();
     assert_eq!(format!("{:?}", ringbuf), "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]");
 
-    let ringbuf: VecDeque<_> = vec!["just", "one", "test", "more"].iter()
-                                                                    .cloned()
-                                                                    .collect();
-    assert_eq!(format!("{:?}", ringbuf), "[\"just\", \"one\", \"test\", \"more\"]");
+    let ringbuf: VecDeque<_> = vec!["just", "one", "test", "more"]
+        .iter()
+        .cloned()
+        .collect();
+    assert_eq!(format!("{:?}", ringbuf),
+               "[\"just\", \"one\", \"test\", \"more\"]");
 }
 
 #[test]
 fn test_drop() {
-    static mut drops: i32 = 0;
+    static mut DROPS: i32 = 0;
     struct Elem;
     impl Drop for Elem {
         fn drop(&mut self) {
-            unsafe { drops += 1; }
+            unsafe {
+                DROPS += 1;
+            }
         }
     }
 
@@ -646,16 +712,18 @@ fn test_drop() {
     ring.push_front(Elem);
     drop(ring);
 
-    assert_eq!(unsafe {drops}, 4);
+    assert_eq!(unsafe { DROPS }, 4);
 }
 
 #[test]
 fn test_drop_with_pop() {
-    static mut drops: i32 = 0;
+    static mut DROPS: i32 = 0;
     struct Elem;
     impl Drop for Elem {
         fn drop(&mut self) {
-            unsafe { drops += 1; }
+            unsafe {
+                DROPS += 1;
+            }
         }
     }
 
@@ -667,19 +735,21 @@ fn test_drop_with_pop() {
 
     drop(ring.pop_back());
     drop(ring.pop_front());
-    assert_eq!(unsafe {drops}, 2);
+    assert_eq!(unsafe { DROPS }, 2);
 
     drop(ring);
-    assert_eq!(unsafe {drops}, 4);
+    assert_eq!(unsafe { DROPS }, 4);
 }
 
 #[test]
 fn test_drop_clear() {
-    static mut drops: i32 = 0;
+    static mut DROPS: i32 = 0;
     struct Elem;
     impl Drop for Elem {
         fn drop(&mut self) {
-            unsafe { drops += 1; }
+            unsafe {
+                DROPS += 1;
+            }
         }
     }
 
@@ -689,10 +759,10 @@ fn test_drop_clear() {
     ring.push_back(Elem);
     ring.push_front(Elem);
     ring.clear();
-    assert_eq!(unsafe {drops}, 4);
+    assert_eq!(unsafe { DROPS }, 4);
 
     drop(ring);
-    assert_eq!(unsafe {drops}, 4);
+    assert_eq!(unsafe { DROPS }, 4);
 }
 
 #[test]
@@ -780,7 +850,7 @@ fn test_get_mut() {
 
     match ring.get_mut(1) {
         Some(x) => *x = -1,
-        None => ()
+        None => (),
     };
 
     assert_eq!(ring.get_mut(0), Some(&mut 0));
@@ -810,13 +880,13 @@ fn test_front() {
 fn test_as_slices() {
     let mut ring: VecDeque<i32> = VecDeque::with_capacity(127);
     let cap = ring.capacity() as i32;
-    let first = cap/2;
-    let last  = cap - first;
+    let first = cap / 2;
+    let last = cap - first;
     for i in 0..first {
         ring.push_back(i);
 
         let (left, right) = ring.as_slices();
-        let expected: Vec<_> = (0..i+1).collect();
+        let expected: Vec<_> = (0..i + 1).collect();
         assert_eq!(left, &expected[..]);
         assert_eq!(right, []);
     }
@@ -824,7 +894,7 @@ fn test_as_slices() {
     for j in -last..0 {
         ring.push_front(j);
         let (left, right) = ring.as_slices();
-        let expected_left: Vec<_> = (-last..j+1).rev().collect();
+        let expected_left: Vec<_> = (-last..j + 1).rev().collect();
         let expected_right: Vec<_> = (0..first).collect();
         assert_eq!(left, &expected_left[..]);
         assert_eq!(right, &expected_right[..]);
@@ -838,13 +908,13 @@ fn test_as_slices() {
 fn test_as_mut_slices() {
     let mut ring: VecDeque<i32> = VecDeque::with_capacity(127);
     let cap = ring.capacity() as i32;
-    let first = cap/2;
-    let last  = cap - first;
+    let first = cap / 2;
+    let last = cap - first;
     for i in 0..first {
         ring.push_back(i);
 
         let (left, right) = ring.as_mut_slices();
-        let expected: Vec<_> = (0..i+1).collect();
+        let expected: Vec<_> = (0..i + 1).collect();
         assert_eq!(left, &expected[..]);
         assert_eq!(right, []);
     }
@@ -852,7 +922,7 @@ fn test_as_mut_slices() {
     for j in -last..0 {
         ring.push_front(j);
         let (left, right) = ring.as_mut_slices();
-        let expected_left: Vec<_> = (-last..j+1).rev().collect();
+        let expected_left: Vec<_> = (-last..j + 1).rev().collect();
         let expected_right: Vec<_> = (0..first).collect();
         assert_eq!(left, &expected_left[..]);
         assert_eq!(right, &expected_right[..]);
@@ -916,4 +986,24 @@ fn test_extend_ref() {
     assert_eq!(v[3], 4);
     assert_eq!(v[4], 5);
     assert_eq!(v[5], 6);
+}
+
+#[test]
+fn test_contains() {
+    let mut v = VecDeque::new();
+    v.extend(&[2, 3, 4]);
+
+    assert!(v.contains(&3));
+    assert!(!v.contains(&1));
+
+    v.clear();
+
+    assert!(!v.contains(&3));
+}
+
+#[allow(dead_code)]
+fn assert_covariance() {
+    fn drain<'new>(d: Drain<'static, &'static str>) -> Drain<'new, &'new str> {
+        d
+    }
 }

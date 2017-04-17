@@ -1,7 +1,7 @@
 % Patterns
 
 Patterns are quite common in Rust. We use them in [variable
-bindings][bindings], [match statements][match], and other places, too. Let’s go
+bindings][bindings], [match expressions][match], and other places, too. Let’s go
 on a whirlwind tour of all of the things patterns can do!
 
 [bindings]: variable-bindings.html
@@ -109,14 +109,14 @@ struct Point {
     y: i32,
 }
 
-let origin = Point { x: 0, y: 0 };
+let point = Point { x: 2, y: 3 };
 
-match origin {
+match point {
     Point { x, .. } => println!("x is {}", x),
 }
 ```
 
-This prints `x is 0`.
+This prints `x is 2`.
 
 You can do this kind of match on any member, not only the first:
 
@@ -126,14 +126,14 @@ struct Point {
     y: i32,
 }
 
-let origin = Point { x: 0, y: 0 };
+let point = Point { x: 2, y: 3 };
 
-match origin {
+match point {
     Point { y, .. } => println!("y is {}", y),
 }
 ```
 
-This prints `y is 0`.
+This prints `y is 3`.
 
 This ‘destructuring’ behavior works on any compound data type, like
 [tuples][tuples] or [enums][enums].
@@ -163,7 +163,7 @@ ignore parts of a larger structure:
 
 ```rust
 fn coordinate() -> (i32, i32, i32) {
-    // generate and return some sort of triple tuple
+    // Generate and return some sort of triple tuple.
 # (1, 2, 3)
 }
 
@@ -173,7 +173,39 @@ let (x, _, z) = coordinate();
 Here, we bind the first and last element of the tuple to `x` and `z`, but
 ignore the middle element.
 
-Similarly, you can use `..` in a pattern to disregard multiple values.
+It’s worth noting that using `_` never binds the value in the first place,
+which means that the value does not move:
+
+```rust
+let tuple: (u32, String) = (5, String::from("five"));
+
+// Here, tuple is moved, because the String moved:
+let (x, _s) = tuple;
+
+// The next line would give "error: use of partially moved value: `tuple`".
+// println!("Tuple is: {:?}", tuple);
+
+// However,
+
+let tuple = (5, String::from("five"));
+
+// Here, tuple is _not_ moved, as the String was never moved, and u32 is Copy:
+let (x, _) = tuple;
+
+// That means this works:
+println!("Tuple is: {:?}", tuple);
+```
+
+This also means that any temporary variables will be dropped at the end of the
+statement:
+
+```rust
+// Here, the String created will be dropped immediately, as it’s not bound:
+
+let _ = String::from("  hello  ").trim();
+```
+
+You can also use `..` in a pattern to disregard multiple values:
 
 ```rust
 enum OptionalTuple {
@@ -271,7 +303,7 @@ struct Person {
 }
 
 let name = "Steve".to_string();
-let mut x: Option<Person> = Some(Person { name: Some(name) });
+let x: Option<Person> = Some(Person { name: Some(name) });
 match x {
     Some(Person { name: ref a @ Some(_), .. }) => println!("{:?}", a),
     _ => {}
