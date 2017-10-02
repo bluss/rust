@@ -1916,6 +1916,16 @@ impl<I: fmt::Debug, U: IntoIterator, F> fmt::Debug for FlatMap<I, U, F>
     }
 }
 
+// Return an iterator composed of chain() that is equivalent to the sequence
+// of subiterators the fold_map() is composed of (after mapping)
+macro_rules! flat_map_into_chains {
+    ($self_:expr) => {
+        $self_.frontiter.into_iter()
+            .chain($self_.iter.map($self_.f).map(U::into_iter))
+            .chain($self_.backiter)
+    };
+}
+
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<I: Iterator, U: IntoIterator, F> Iterator for FlatMap<I, U, F>
     where F: FnMut(I::Item) -> U,
@@ -1952,10 +1962,8 @@ impl<I: Iterator, U: IntoIterator, F> Iterator for FlatMap<I, U, F>
     fn fold<Acc, Fold>(self, init: Acc, mut fold: Fold) -> Acc
         where Fold: FnMut(Acc, Self::Item) -> Acc,
     {
-        self.frontiter.into_iter()
-            .chain(self.iter.map(self.f).map(U::into_iter))
-            .chain(self.backiter)
-            .fold(init, |acc, iter| iter.fold(acc, &mut fold))
+        flat_map_into_chains!(self)
+            .fold(init, move |acc, iter| iter.fold(acc, &mut fold))
     }
 }
 
@@ -1978,6 +1986,14 @@ impl<I: DoubleEndedIterator, U, F> DoubleEndedIterator for FlatMap<I, U, F> wher
                 next => self.backiter = next.map(IntoIterator::into_iter),
             }
         }
+    }
+
+    #[inline]
+    fn rfold<Acc, Fold>(self, init: Acc, mut fold: Fold) -> Acc
+        where Fold: FnMut(Acc, Self::Item) -> Acc,
+    {
+        flat_map_into_chains!(self)
+            .rfold(init, move |acc, iter| iter.rfold(acc, &mut fold))
     }
 }
 
