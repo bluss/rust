@@ -360,6 +360,20 @@ pub trait TryFrom<T>: Sized {
     fn try_from(value: T) -> Result<Self, Self::Error>;
 }
 
+/// The identity function.
+///
+/// The identity function returns the same value that was passed in.
+///
+/// # Examples
+///
+/// ```
+/// use std::convert::identity;
+///
+/// assert_eq!(identity(7), 7);
+/// ```
+#[unstable(feature = "convert_identity", issue = "0")]
+pub fn identity<T>(value: T) -> T { value }
+
 ////////////////////////////////////////////////////////////////////////////////
 // GENERIC IMPLS
 ////////////////////////////////////////////////////////////////////////////////
